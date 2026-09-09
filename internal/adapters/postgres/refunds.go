@@ -59,7 +59,7 @@ func (s *Store) CreateRefund(ctx context.Context, principal core.Principal, paym
 	if err != nil {
 		return core.Refund{}, false, err
 	}
-	r := core.Refund{RefundID: id, TransactionID: paymentID, AccountID: p.AccountID, MerchantID: p.MerchantID, ExternalID: in.ExternalID, Status: "pending", Amount: in.Amount, Currency: p.Currency, Reason: in.Reason, Metadata: in.Metadata, CreationDate: nowUTC(), ProviderPaymentID: p.ProviderPaymentID, Route: p.Route, ResourceVersion: 1}
+	r := core.Refund{RefundID: id, TransactionID: paymentID, AccountID: p.AccountID, MerchantID: p.MerchantID, ExternalID: in.ExternalID, Status: "pending", OperationalStatus: "pending_debit", Amount: in.Amount, Currency: p.Currency, Reason: in.Reason, Metadata: in.Metadata, CreationDate: nowUTC(), ProviderPaymentID: p.ProviderPaymentID, Route: p.Route, ResourceVersion: 1}
 	payload, _ := json.Marshal(map[string]any{"eventId": deterministicID("refund.created:" + id), "eventType": "refund.created", "apiVersion": "2", "merchantId": p.MerchantID, "creationDate": r.CreationDate, "resourceVersion": 1, "data": map[string]any{"object": r}})
 	_, err = tx.Exec(ctx, `INSERT INTO webhook_deliveries(webhook_id,event_id,event_type,payload) SELECT id,$1,'refund.created',$2 FROM webhooks WHERE api_version='2' AND webhook_secret<>'' AND (merchant_id=$3 OR (account_id=$4 AND merchant_id IS NULL)) ON CONFLICT DO NOTHING`, deterministicID("refund.created:"+id), payload, p.MerchantID, p.AccountID)
 	if err != nil {
