@@ -154,7 +154,7 @@ func (s *Store) ApplyProviderEvent(ctx context.Context, event core.ProviderEvent
 		return core.EventResult{}, err
 	}
 	if next == "confirmed" {
-		_, err = tx.Exec(ctx, `INSERT INTO dinacore_balance_outbox(ref_type,ref_id,account_id,amount,currency) VALUES('cashin',$1,$2,$3,$4) ON CONFLICT(ref_type,ref_id) DO NOTHING`, p.TransactionID, p.MerchantID, p.Amount, p.Currency)
+		_, err = tx.Exec(ctx, `INSERT INTO dinacore_balance_outbox(ref_type,ref_id,account_id,amount,currency) VALUES('cashin',$1,$2,$3,$4) ON CONFLICT(ref_type,ref_id) DO NOTHING`, p.TransactionID, p.AccountID, p.Amount, p.Currency)
 		if err != nil {
 			return core.EventResult{}, err
 		}

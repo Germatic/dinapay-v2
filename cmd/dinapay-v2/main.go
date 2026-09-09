@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Germatic/dinapay-v2/internal/adapters/dinacore"
 	"github.com/Germatic/dinapay-v2/internal/adapters/httpclient"
 	"github.com/Germatic/dinapay-v2/internal/adapters/memory"
 	"github.com/Germatic/dinapay-v2/internal/adapters/postgres"
@@ -54,6 +55,9 @@ func main() {
 		env("CHECKOUT_BASE_URL", "https://checkout.demo.dinaria.com"),
 	)
 	events := app.NewProviderEvents(store)
+	if pool != nil && os.Getenv("DINACORE_BASE_URL") != "" && os.Getenv("DINACORE_API_KEY") != "" {
+		go dinacore.NewOutboxWorker(pool, dinacore.New(os.Getenv("DINACORE_BASE_URL"), os.Getenv("DINACORE_API_KEY"))).Run(context.Background())
+	}
 	server := &http.Server{Addr: ":" + env("PORT", "8090"), Handler: httpapi.New(payments, events, auth, os.Getenv("SERVICE_TOKEN")), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 15 * time.Second, IdleTimeout: 60 * time.Second}
 	slog.Info("dinapay-v2 starting", "addr", server.Addr)
 	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {

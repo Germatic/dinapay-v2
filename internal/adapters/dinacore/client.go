@@ -25,7 +25,11 @@ func New(baseURL, apiKey string) *Client {
 }
 
 func (c *Client) CreditConfirmedPayment(ctx context.Context, p core.Payment, amount string) error {
-	return c.post(ctx, "/api/balance/credit", map[string]string{"merchantId": p.MerchantID, "currency": p.Currency, "amount": amount, "refType": "cashin", "refId": p.TransactionID})
+	return c.CreditBalance(ctx, p.AccountID, p.TransactionID, amount, p.Currency)
+}
+
+func (c *Client) CreditBalance(ctx context.Context, accountID, refID, amount, currency string) error {
+	return c.post(ctx, "/api/balance/credit", map[string]string{"merchantId": accountID, "currency": currency, "amount": amount, "refType": "cashin", "refId": refID})
 }
 
 func (c *Client) DebitConfirmedRefund(ctx context.Context, merchantID, refundID, amount, currency string) error {
