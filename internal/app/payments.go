@@ -100,7 +100,27 @@ func (s *Payments) Create(ctx context.Context, principal core.Principal, in core
 }
 
 func (s *Payments) Get(ctx context.Context, principal core.Principal, transactionID string) (core.Payment, error) {
-	return s.store.Get(ctx, principal.AccountID, principal.MerchantID, transactionID)
+	p, err := s.store.Get(ctx, principal.AccountID, principal.MerchantID, transactionID)
+	if err == nil {
+		s.normalizeRead(&p)
+	}
+	return p, err
+}
+
+func (s *Payments) List(ctx context.Context, principal core.Principal, options core.PaymentListOptions) (core.PaymentPage, error) {
+	page, err := s.store.List(ctx, principal.AccountID, principal.MerchantID, options)
+	if err == nil {
+		for i := range page.Data {
+			s.normalizeRead(&page.Data[i])
+		}
+	}
+	return page, err
+}
+
+func (s *Payments) normalizeRead(p *core.Payment) {
+	if p != nil && p.Origin == "v1" {
+		p.ActionURL = s.checkoutBase + "/pay/" + p.TransactionID
+	}
 }
 
 func publicPaymentData(completion map[string]any) (map[string]any, error) {

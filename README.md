@@ -49,3 +49,20 @@ same database transaction.
 A first transition to `confirmed` inserts an idempotent `cashin` row in the
 existing `dinacore_balance_outbox`. It does not change the payment to `paid`;
 that state remains reserved for a later settlement/reconciliation decision.
+
+## Consolidated payment reads
+
+V2 is the complete read surface during the gradual migration:
+
+- `GET /v2/payments/{transactionId}` reads a native V2 payment first and falls
+  back to an authorized legacy V1 payment.
+- `GET /v2/payments?limit=50&cursor=...` returns V1 and V2 payments in one
+  globally ordered page. The opaque cursor uses `creationDate` and
+  `transactionId`, so equal timestamps do not skip or repeat rows.
+- Legacy rows are mapped to the V2 public contract. Missing legacy data is
+  omitted rather than fabricated.
+- `actionUrl` is normalized to the Dinaria checkout. Provider-native URLs stay
+  under `paymentData` as completion alternatives.
+
+Payment origin remains internal. It will route future operations to the
+correct implementation and is not exposed in the public response.

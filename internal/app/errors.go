@@ -1,13 +1,9 @@
 package app
 
-import (
-	"errors"
-
-	"github.com/Germatic/dinapay-v2/internal/core"
-)
+import "github.com/Germatic/dinapay-v2/internal/core"
 
 var (
-	ErrInvalid      = errors.New("invalid request")
+	ErrInvalid      = core.ErrInvalid
 	ErrUnauthorized = core.ErrUnauthorized
 	ErrNotFound     = core.ErrNotFound
 	ErrConflict     = core.ErrConflict

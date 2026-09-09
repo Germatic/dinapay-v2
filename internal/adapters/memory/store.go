@@ -2,6 +2,7 @@ package memory
 
 import (
 	"context"
+	"sort"
 	"sync"
 
 	"github.com/Germatic/dinapay-v2/internal/core"
@@ -10,6 +11,32 @@ import (
 type idempotencyRecord struct {
 	Hash, TransactionID string
 	Complete            bool
+}
+
+func (s *Store) List(_ context.Context, accountID, merchantID string, options core.PaymentListOptions) (core.PaymentPage, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	limit := options.Limit
+	if limit <= 0 || limit > 100 {
+		limit = 50
+	}
+	items := make([]core.Payment, 0, len(s.payments))
+	for _, p := range s.payments {
+		if (merchantID != "" && p.MerchantID == merchantID) || (merchantID == "" && accountID != "" && p.AccountID == accountID) {
+			items = append(items, p)
+		}
+	}
+	sort.Slice(items, func(i, j int) bool {
+		if items[i].CreationDate.Equal(items[j].CreationDate) {
+			return items[i].TransactionID > items[j].TransactionID
+		}
+		return items[i].CreationDate.After(items[j].CreationDate)
+	})
+	hasMore := len(items) > limit
+	if hasMore {
+		items = items[:limit]
+	}
+	return core.PaymentPage{Data: items, HasMore: hasMore}, nil
 }
 
 type Store struct {

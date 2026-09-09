@@ -88,6 +88,14 @@ func (s *Store) ReleaseCreate(ctx context.Context, merchantID, key string) error
 }
 
 func (s *Store) Get(ctx context.Context, accountID, merchantID, transactionID string) (core.Payment, error) {
+	p, err := s.getV2(ctx, accountID, merchantID, transactionID)
+	if !errors.Is(err, core.ErrNotFound) {
+		return p, err
+	}
+	return s.getLegacy(ctx, accountID, merchantID, transactionID)
+}
+
+func (s *Store) getV2(ctx context.Context, accountID, merchantID, transactionID string) (core.Payment, error) {
 	var p core.Payment
 	var customer, metadata, paymentData, route []byte
 	err := s.db.QueryRow(ctx, `SELECT transaction_id::text,account_id,merchant_id,external_id,status,amount,currency,payment_method,COALESCE(description,''),creation_date,expiration_date,action_url,customer,metadata,payment_data,provider_payment_id,COALESCE(provider_reference,''),route_decision,resource_version
@@ -103,6 +111,7 @@ func (s *Store) Get(ctx context.Context, accountID, merchantID, transactionID st
 	_ = json.Unmarshal(metadata, &p.Metadata)
 	_ = json.Unmarshal(paymentData, &p.PaymentData)
 	_ = json.Unmarshal(route, &p.Route)
+	p.Origin = "v2"
 	return p, nil
 }
 

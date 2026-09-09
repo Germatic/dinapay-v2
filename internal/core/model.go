@@ -39,6 +39,18 @@ type Payment struct {
 	ProviderReference string         `json:"-"`
 	Route             RouteDecision  `json:"-"`
 	Version           int64          `json:"-"`
+	Origin            string         `json:"-"`
+}
+
+type PaymentListOptions struct {
+	Limit  int
+	Cursor string
+}
+
+type PaymentPage struct {
+	Data       []Payment `json:"data"`
+	HasMore    bool      `json:"hasMore"`
+	NextCursor string    `json:"nextCursor,omitempty"`
 }
 
 type RouteRequest struct {

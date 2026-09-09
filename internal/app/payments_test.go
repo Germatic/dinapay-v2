@@ -39,3 +39,18 @@ func TestCreateIsIdempotent(t *testing.T) {
 		t.Fatalf("unexpected public paymentData: %#v", p1.PaymentData)
 	}
 }
+
+func TestLegacyReadUsesStandardCheckoutURL(t *testing.T) {
+	store := memory.NewStore()
+	// CompleteCreate is used only to seed the in-memory repository for this read test.
+	_, _, _ = store.BeginCreate(context.Background(), "merchant1", "legacy", "hash", "legacy-id")
+	_ = store.CompleteCreate(context.Background(), core.Payment{TransactionID: "legacy-id", MerchantID: "merchant1", Origin: "v1", ActionURL: "https://provider.example/pay"}, core.MerchantEvent{EventID: "e1"}, "legacy")
+	svc := NewPayments(routerStub{}, connectorStub{}, store, static.NewAuth("test-key=account1:merchant1"), "https://checkout.demo.dinaria.com")
+	p, err := svc.Get(context.Background(), core.Principal{MerchantID: "merchant1"}, "legacy-id")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.ActionURL != "https://checkout.demo.dinaria.com/pay/legacy-id" {
+		t.Fatalf("actionUrl = %s", p.ActionURL)
+	}
+}

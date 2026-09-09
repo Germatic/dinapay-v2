@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -25,9 +26,32 @@ func New(payments *app.Payments, events *app.ProviderEvents, auth core.Authentic
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) { writeJSON(w, 200, map[string]string{"status": "up"}) })
 	mux.HandleFunc("GET /ready", func(w http.ResponseWriter, _ *http.Request) { writeJSON(w, 200, map[string]string{"status": "ready"}) })
 	mux.HandleFunc("POST /v2/payments", s.create)
+	mux.HandleFunc("GET /v2/payments", s.list)
 	mux.HandleFunc("GET /v2/payments/{transactionId}", s.get)
 	mux.HandleFunc("POST /internal/v1/provider-events", s.providerEvent)
 	return mux
+}
+
+func (s *Server) list(w http.ResponseWriter, r *http.Request) {
+	p, ok := s.principal(w, r)
+	if !ok {
+		return
+	}
+	limit := 50
+	if raw := r.URL.Query().Get("limit"); raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil || parsed < 1 || parsed > 100 {
+			writeError(w, 400, "invalid_request", "limit must be between 1 and 100")
+			return
+		}
+		limit = parsed
+	}
+	result, err := s.payments.List(r.Context(), p, core.PaymentListOptions{Limit: limit, Cursor: r.URL.Query().Get("cursor")})
+	if err != nil {
+		mapError(w, err)
+		return
+	}
+	writeJSON(w, 200, result)
 }
 
 func (s *Server) providerEvent(w http.ResponseWriter, r *http.Request) {
@@ -118,6 +142,8 @@ func (s *Server) principal(w http.ResponseWriter, r *http.Request) (core.Princip
 
 func mapError(w http.ResponseWriter, err error) {
 	switch {
+	case errors.Is(err, core.ErrInvalid):
+		writeError(w, 400, "invalid_request", err.Error())
 	case errors.Is(err, app.ErrInvalid):
 		writeError(w, 400, "invalid_request", err.Error())
 	case errors.Is(err, app.ErrUnauthorized):
