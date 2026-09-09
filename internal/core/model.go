@@ -5,18 +5,20 @@ import "time"
 type Customer map[string]any
 
 type CreatePayment struct {
-	MerchantID     string
-	AccountID      string
-	ExternalID     string
-	Amount         string
-	Currency       string
-	PaymentMethod  string
-	Description    string
-	Customer       Customer
-	SuccessURL     string
-	CancelURL      string
-	ExpirationDate time.Time
-	Metadata       map[string]any
+	MerchantID      string
+	AccountID       string
+	ExternalID      string
+	Amount          string
+	Currency        string
+	PaymentMethod   string
+	Rail            string
+	DestinationMode string
+	Description     string
+	Customer        Customer
+	SuccessURL      string
+	CancelURL       string
+	ExpirationDate  time.Time
+	Metadata        map[string]any
 }
 
 type Payment struct {
@@ -120,6 +122,8 @@ type RouteDecision struct {
 	ConnectorID          string           `json:"connectorId"`
 	Provider             string           `json:"provider"`
 	ProviderConnectionID string           `json:"providerConnectionId"`
+	Rail                 string           `json:"rail"`
+	DestinationMode      string           `json:"destinationMode,omitempty"`
 	Binding              *ProviderBinding `json:"binding,omitempty"`
 	PolicyVersion        string           `json:"policyVersion"`
 	DecidedAt            time.Time        `json:"decidedAt"`

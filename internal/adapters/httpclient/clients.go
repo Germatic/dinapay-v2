@@ -50,6 +50,7 @@ func (c *Connectors) CreatePayment(ctx context.Context, route core.RouteDecision
 		"operationId": "payment:" + p.TransactionID + ":create", "transactionId": p.TransactionID,
 		"provider": route.Provider, "providerConnectionId": route.ProviderConnectionID,
 		"amount": p.Amount, "currency": p.Currency, "paymentMethod": p.PaymentMethod,
+		"rail": route.Rail, "destinationMode": route.DestinationMode,
 		"customer": p.Customer,
 	}
 	if p.Description != "" {

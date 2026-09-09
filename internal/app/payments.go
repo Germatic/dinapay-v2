@@ -54,6 +54,7 @@ func (s *Payments) Create(ctx context.Context, principal core.Principal, in core
 		RequestID: deterministicUUID(merchantID + ":route:" + idempotencyKey), TransactionID: txID, AccountID: principal.AccountID,
 		MerchantID: merchantID, Operation: "payment", Amount: in.Amount,
 		Currency: in.Currency, MarketCountry: country, PaymentMethod: in.PaymentMethod,
+		Rail: in.Rail, DestinationMode: in.DestinationMode,
 		CustomerHasDocument: hasDocument,
 	})
 	if err != nil {

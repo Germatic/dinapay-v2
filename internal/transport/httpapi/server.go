@@ -162,17 +162,19 @@ func (s *Server) providerEvent(w http.ResponseWriter, r *http.Request) {
 }
 
 type createRequest struct {
-	MerchantID     string         `json:"merchantId"`
-	ExternalID     string         `json:"externalId"`
-	Amount         string         `json:"amount"`
-	Currency       string         `json:"currency"`
-	PaymentMethod  string         `json:"paymentMethod"`
-	Description    string         `json:"description"`
-	Customer       core.Customer  `json:"customer"`
-	SuccessURL     string         `json:"successUrl"`
-	CancelURL      string         `json:"cancelUrl"`
-	ExpirationDate time.Time      `json:"expirationDate"`
-	Metadata       map[string]any `json:"metadata"`
+	MerchantID      string         `json:"merchantId"`
+	ExternalID      string         `json:"externalId"`
+	Amount          string         `json:"amount"`
+	Currency        string         `json:"currency"`
+	PaymentMethod   string         `json:"paymentMethod"`
+	Rail            string         `json:"rail"`
+	DestinationMode string         `json:"destinationMode"`
+	Description     string         `json:"description"`
+	Customer        core.Customer  `json:"customer"`
+	SuccessURL      string         `json:"successUrl"`
+	CancelURL       string         `json:"cancelUrl"`
+	ExpirationDate  time.Time      `json:"expirationDate"`
+	Metadata        map[string]any `json:"metadata"`
 }
 
 func (s *Server) create(w http.ResponseWriter, r *http.Request) {
@@ -189,7 +191,7 @@ func (s *Server) create(w http.ResponseWriter, r *http.Request) {
 	}
 	result, replayed, err := s.payments.Create(r.Context(), p, core.CreatePayment{
 		MerchantID: req.MerchantID, AccountID: p.AccountID, ExternalID: req.ExternalID, Amount: req.Amount,
-		Currency: req.Currency, PaymentMethod: req.PaymentMethod, Description: req.Description,
+		Currency: req.Currency, PaymentMethod: req.PaymentMethod, Rail: req.Rail, DestinationMode: req.DestinationMode, Description: req.Description,
 		Customer: req.Customer, SuccessURL: req.SuccessURL, CancelURL: req.CancelURL,
 		ExpirationDate: req.ExpirationDate, Metadata: req.Metadata,
 	}, r.Header.Get("Idempotency-Key"))
