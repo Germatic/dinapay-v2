@@ -10,6 +10,15 @@ type Connector interface {
 	CreatePayment(context.Context, RouteDecision, Payment, string, string) (ProviderPayment, error)
 }
 
+// LegacyRefunds is a temporary anti-corruption port used while V1 payments
+// remain operational. The raw credential is forwarded only to the loopback V1
+// API after V2 authentication and is never persisted.
+type LegacyRefunds interface {
+	Create(context.Context, string, string, string, CreateRefund) (Refund, bool, error)
+	List(context.Context, string, string) (RefundList, error)
+	Get(context.Context, string, string) (Refund, error)
+}
+
 // PaymentStore reserves idempotency before external calls, then commits the
 // payment and initial merchant event atomically.
 type PaymentStore interface {

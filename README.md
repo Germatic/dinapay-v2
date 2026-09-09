@@ -66,3 +66,18 @@ V2 is the complete read surface during the gradual migration:
 
 Payment origin remains internal. It will route future operations to the
 correct implementation and is not exposed in the public response.
+
+## Refund migration
+
+The public V2 refund endpoints are available for payments whose internal
+origin is V1:
+
+- `POST /v2/payments/{transactionId}/refunds`
+- `GET /v2/payments/{transactionId}/refunds`
+- `GET /v2/refunds/{refundId}`
+
+V2 authenticates and authorizes the payment first, then delegates through a
+loopback legacy adapter while preserving the caller's idempotency key. The
+adapter converts the legacy resource to the V2 contract. Credentials are not
+persisted or logged. Native V2 refunds remain explicitly unsupported until the
+connector refund operation and transactional ledger compensation are wired.

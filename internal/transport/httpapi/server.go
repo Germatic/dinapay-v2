@@ -15,21 +15,77 @@ import (
 
 type Server struct {
 	payments     *app.Payments
+	refunds      *app.Refunds
 	events       *app.ProviderEvents
 	auth         core.Authenticator
 	serviceToken string
 }
 
-func New(payments *app.Payments, events *app.ProviderEvents, auth core.Authenticator, serviceToken string) http.Handler {
-	s := &Server{payments: payments, events: events, auth: auth, serviceToken: serviceToken}
+func New(payments *app.Payments, refunds *app.Refunds, events *app.ProviderEvents, auth core.Authenticator, serviceToken string) http.Handler {
+	s := &Server{payments: payments, refunds: refunds, events: events, auth: auth, serviceToken: serviceToken}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) { writeJSON(w, 200, map[string]string{"status": "up"}) })
 	mux.HandleFunc("GET /ready", func(w http.ResponseWriter, _ *http.Request) { writeJSON(w, 200, map[string]string{"status": "ready"}) })
 	mux.HandleFunc("POST /v2/payments", s.create)
 	mux.HandleFunc("GET /v2/payments", s.list)
 	mux.HandleFunc("GET /v2/payments/{transactionId}", s.get)
+	mux.HandleFunc("POST /v2/payments/{transactionId}/refunds", s.createRefund)
+	mux.HandleFunc("GET /v2/payments/{transactionId}/refunds", s.listRefunds)
+	mux.HandleFunc("GET /v2/refunds/{refundId}", s.getRefund)
 	mux.HandleFunc("POST /internal/v1/provider-events", s.providerEvent)
 	return mux
+}
+
+func (s *Server) createRefund(w http.ResponseWriter, r *http.Request) {
+	p, ok := s.principal(w, r)
+	if !ok {
+		return
+	}
+	var in core.CreateRefund
+	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&in); err != nil {
+		writeError(w, 400, "invalid_request", err.Error())
+		return
+	}
+	result, replayed, err := s.refunds.Create(r.Context(), p, bearer(r), r.PathValue("transactionId"), r.Header.Get("Idempotency-Key"), in)
+	if err != nil {
+		mapError(w, err)
+		return
+	}
+	if replayed {
+		w.Header().Set("Idempotent-Replayed", "true")
+		writeJSON(w, 200, result)
+		return
+	}
+	writeJSON(w, 201, result)
+}
+func (s *Server) listRefunds(w http.ResponseWriter, r *http.Request) {
+	p, ok := s.principal(w, r)
+	if !ok {
+		return
+	}
+	result, err := s.refunds.List(r.Context(), p, bearer(r), r.PathValue("transactionId"))
+	if err != nil {
+		mapError(w, err)
+		return
+	}
+	writeJSON(w, 200, result)
+}
+func (s *Server) getRefund(w http.ResponseWriter, r *http.Request) {
+	_, ok := s.principal(w, r)
+	if !ok {
+		return
+	}
+	result, err := s.refunds.Get(r.Context(), bearer(r), r.PathValue("refundId"))
+	if err != nil {
+		mapError(w, err)
+		return
+	}
+	writeJSON(w, 200, result)
+}
+func bearer(r *http.Request) string {
+	return strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
 }
 
 func (s *Server) list(w http.ResponseWriter, r *http.Request) {
@@ -154,6 +210,8 @@ func mapError(w http.ResponseWriter, err error) {
 		writeError(w, 409, "idempotency_conflict", err.Error())
 	case errors.Is(err, app.ErrInProgress):
 		writeError(w, 409, "operation_in_progress", err.Error())
+	case errors.Is(err, app.ErrUnsupported):
+		writeError(w, 422, "refund_not_supported", err.Error())
 	default:
 		writeError(w, 503, "dependency_unavailable", err.Error())
 	}

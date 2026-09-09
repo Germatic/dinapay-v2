@@ -8,4 +8,5 @@ var (
 	ErrConflict     = errors.New("conflict")
 	ErrInProgress   = errors.New("operation in progress")
 	ErrUnauthorized = errors.New("unauthorized")
+	ErrUnsupported  = errors.New("operation not supported")
 )

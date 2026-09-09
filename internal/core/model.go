@@ -53,6 +53,32 @@ type PaymentPage struct {
 	NextCursor string    `json:"nextCursor,omitempty"`
 }
 
+type CreateRefund struct {
+	ExternalID string         `json:"externalId"`
+	Amount     string         `json:"amount"`
+	Reason     string         `json:"reason,omitempty"`
+	Metadata   map[string]any `json:"metadata,omitempty"`
+}
+
+type Refund struct {
+	RefundID          string         `json:"refundId"`
+	TransactionID     string         `json:"transactionId"`
+	ExternalID        string         `json:"externalId"`
+	Status            string         `json:"status"`
+	Amount            string         `json:"amount"`
+	Currency          string         `json:"currency"`
+	Reason            string         `json:"reason,omitempty"`
+	CreationDate      time.Time      `json:"creationDate"`
+	CompletionDate    *time.Time     `json:"completionDate,omitempty"`
+	ProviderReference string         `json:"providerReference,omitempty"`
+	Failure           map[string]any `json:"failure,omitempty"`
+	Metadata          map[string]any `json:"metadata,omitempty"`
+}
+
+type RefundList struct {
+	Data []Refund `json:"data"`
+}
+
 type RouteRequest struct {
 	RequestID           string   `json:"requestId"`
 	TransactionID       string   `json:"transactionId"`
