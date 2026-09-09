@@ -49,10 +49,12 @@ func (s *Payments) Create(ctx context.Context, principal core.Principal, in core
 		}
 	}()
 	country, _ := in.Customer["country"].(string)
+	_, hasDocument := in.Customer["documentNumber"]
 	route, err := s.router.Resolve(ctx, core.RouteRequest{
 		RequestID: deterministicUUID(merchantID + ":route:" + idempotencyKey), TransactionID: txID, AccountID: principal.AccountID,
 		MerchantID: merchantID, Operation: "payment", Amount: in.Amount,
 		Currency: in.Currency, MarketCountry: country, PaymentMethod: in.PaymentMethod,
+		CustomerHasDocument: hasDocument,
 	})
 	if err != nil {
 		return core.Payment{}, false, fmt.Errorf("resolve route: %w", err)

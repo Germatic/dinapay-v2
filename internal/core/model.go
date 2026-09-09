@@ -42,18 +42,19 @@ type Payment struct {
 }
 
 type RouteRequest struct {
-	RequestID        string   `json:"requestId"`
-	TransactionID    string   `json:"transactionId"`
-	AccountID        string   `json:"accountId,omitempty"`
-	MerchantID       string   `json:"merchantId"`
-	Operation        string   `json:"operation"`
-	Amount           string   `json:"amount"`
-	Currency         string   `json:"currency"`
-	MarketCountry    string   `json:"marketCountry"`
-	PaymentMethod    string   `json:"paymentMethod"`
-	Rail             string   `json:"rail,omitempty"`
-	DestinationMode  string   `json:"destinationMode,omitempty"`
-	RequiredFeatures []string `json:"requiredFeatures,omitempty"`
+	RequestID           string   `json:"requestId"`
+	TransactionID       string   `json:"transactionId"`
+	AccountID           string   `json:"accountId,omitempty"`
+	MerchantID          string   `json:"merchantId"`
+	Operation           string   `json:"operation"`
+	Amount              string   `json:"amount"`
+	Currency            string   `json:"currency"`
+	MarketCountry       string   `json:"marketCountry"`
+	PaymentMethod       string   `json:"paymentMethod"`
+	CustomerHasDocument bool     `json:"customerHasDocument,omitempty"`
+	Rail                string   `json:"rail,omitempty"`
+	DestinationMode     string   `json:"destinationMode,omitempty"`
+	RequiredFeatures    []string `json:"requiredFeatures,omitempty"`
 }
 
 type ProviderBinding struct {
