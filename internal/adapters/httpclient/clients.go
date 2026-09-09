@@ -19,7 +19,7 @@ type Router struct {
 }
 
 func NewRouter(baseURL, token string) *Router {
-	return &Router{baseURL: strings.TrimRight(baseURL, "/"), token: token, client: &http.Client{Timeout: 3 * time.Second}}
+	return &Router{baseURL: strings.TrimRight(baseURL, "/"), token: token, client: &http.Client{Timeout: 3 * time.Second, Transport: pooledTransport(32)}}
 }
 
 func (r *Router) Resolve(ctx context.Context, in core.RouteRequest) (core.RouteDecision, error) {
@@ -37,7 +37,7 @@ type Connectors struct {
 }
 
 func NewConnectors(urls map[string]string, token string) *Connectors {
-	return &Connectors{urls: urls, token: token, client: &http.Client{Timeout: 10 * time.Second}}
+	return &Connectors{urls: urls, token: token, client: &http.Client{Timeout: 10 * time.Second, Transport: pooledTransport(32)}}
 }
 
 func (c *Connectors) CreatePayment(ctx context.Context, route core.RouteDecision, p core.Payment, successURL, cancelURL string) (core.ProviderPayment, error) {
@@ -112,6 +112,7 @@ func (c *Connectors) GetRefund(ctx context.Context, route core.RouteDecision, r 
 		return out, err
 	}
 	defer resp.Body.Close()
+	defer func() { _, _ = io.Copy(io.Discard, resp.Body) }()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 		return out, fmt.Errorf("upstream status %d: %s", resp.StatusCode, b)

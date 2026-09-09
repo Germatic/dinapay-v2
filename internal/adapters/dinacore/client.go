@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -21,7 +22,14 @@ type Client struct {
 }
 
 func New(baseURL, apiKey string) *Client {
-	return &Client{baseURL: strings.TrimRight(baseURL, "/"), apiKey: apiKey, http: &http.Client{Timeout: 5 * time.Second}}
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.DialContext = (&net.Dialer{Timeout: 2 * time.Second, KeepAlive: 30 * time.Second}).DialContext
+	transport.MaxIdleConns = 32
+	transport.MaxIdleConnsPerHost = 16
+	transport.MaxConnsPerHost = 32
+	transport.IdleConnTimeout = 90 * time.Second
+	transport.ResponseHeaderTimeout = 4 * time.Second
+	return &Client{baseURL: strings.TrimRight(baseURL, "/"), apiKey: apiKey, http: &http.Client{Timeout: 5 * time.Second, Transport: transport}}
 }
 
 func (c *Client) CreditConfirmedPayment(ctx context.Context, p core.Payment, amount string) error {
@@ -57,6 +65,7 @@ func (c *Client) post(ctx context.Context, path string, payload any) error {
 		return err
 	}
 	defer resp.Body.Close()
+	defer func() { _, _ = io.Copy(io.Discard, resp.Body) }()
 	if resp.StatusCode == http.StatusPaymentRequired {
 		return core.ErrInsufficientBalance
 	}

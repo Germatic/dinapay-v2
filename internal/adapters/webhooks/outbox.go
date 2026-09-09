@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"time"
 
@@ -26,7 +27,14 @@ type delivery struct {
 }
 
 func NewWorker(db *pgxpool.Pool) *Worker {
-	return &Worker{db: db, client: &http.Client{Timeout: 10 * time.Second}}
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.DialContext = (&net.Dialer{Timeout: 3 * time.Second, KeepAlive: 30 * time.Second}).DialContext
+	transport.MaxIdleConns = 128
+	transport.MaxIdleConnsPerHost = 8
+	transport.MaxConnsPerHost = 16
+	transport.IdleConnTimeout = 90 * time.Second
+	transport.ResponseHeaderTimeout = 8 * time.Second
+	return &Worker{db: db, client: &http.Client{Timeout: 10 * time.Second, Transport: transport}}
 }
 func (w *Worker) Run(ctx context.Context) {
 	ticker := time.NewTicker(5 * time.Second)

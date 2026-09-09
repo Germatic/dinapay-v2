@@ -18,7 +18,7 @@ type LegacyRefundClient struct {
 }
 
 func NewLegacyRefundClient(base string) *LegacyRefundClient {
-	return &LegacyRefundClient{base: strings.TrimRight(base, "/"), client: &http.Client{Timeout: 20 * time.Second}}
+	return &LegacyRefundClient{base: strings.TrimRight(base, "/"), client: &http.Client{Timeout: 20 * time.Second, Transport: pooledTransport(16)}}
 }
 
 type legacyRefund struct {
