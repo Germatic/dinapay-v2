@@ -20,23 +20,25 @@ type CreatePayment struct {
 }
 
 type Payment struct {
-	TransactionID  string         `json:"transactionId"`
-	MerchantID     string         `json:"-"`
-	AccountID      string         `json:"-"`
-	ExternalID     string         `json:"externalId"`
-	Status         string         `json:"status"`
-	Amount         string         `json:"amount"`
-	Currency       string         `json:"currency"`
-	PaymentMethod  string         `json:"paymentMethod"`
-	Description    string         `json:"description,omitempty"`
-	CreationDate   time.Time      `json:"creationDate"`
-	ExpirationDate time.Time      `json:"expirationDate"`
-	ActionURL      string         `json:"actionUrl"`
-	Customer       Customer       `json:"customer,omitempty"`
-	Metadata       map[string]any `json:"metadata,omitempty"`
-	PaymentData    map[string]any `json:"paymentData"`
-	Route          RouteDecision  `json:"-"`
-	Version        int64          `json:"-"`
+	TransactionID     string         `json:"transactionId"`
+	MerchantID        string         `json:"-"`
+	AccountID         string         `json:"-"`
+	ExternalID        string         `json:"externalId"`
+	Status            string         `json:"status"`
+	Amount            string         `json:"amount"`
+	Currency          string         `json:"currency"`
+	PaymentMethod     string         `json:"paymentMethod"`
+	Description       string         `json:"description,omitempty"`
+	CreationDate      time.Time      `json:"creationDate"`
+	ExpirationDate    time.Time      `json:"expirationDate"`
+	ActionURL         string         `json:"actionUrl"`
+	Customer          Customer       `json:"customer,omitempty"`
+	Metadata          map[string]any `json:"metadata,omitempty"`
+	PaymentData       map[string]any `json:"paymentData"`
+	ProviderPaymentID string         `json:"-"`
+	ProviderReference string         `json:"-"`
+	Route             RouteDecision  `json:"-"`
+	Version           int64          `json:"-"`
 }
 
 type RouteRequest struct {
@@ -81,6 +83,7 @@ type ProviderPayment struct {
 	Provider             string         `json:"provider"`
 	ProviderConnectionID string         `json:"providerConnectionId"`
 	ProviderPaymentID    string         `json:"providerPaymentId"`
+	ProviderReference    string         `json:"providerReference,omitempty"`
 	Status               string         `json:"status"`
 	ExpiresAt            time.Time      `json:"expiresAt"`
 	Completion           map[string]any `json:"completion"`
@@ -93,4 +96,37 @@ type MerchantEvent struct {
 	ResourceID      string
 	ResourceVersion int64
 	Payload         []byte
+}
+
+type ProviderEvent struct {
+	EventID              string            `json:"eventId"`
+	EventType            string            `json:"eventType"`
+	EventVersion         string            `json:"eventVersion"`
+	Source               string            `json:"source"`
+	OccurredAt           time.Time         `json:"occurredAt"`
+	ObservedAt           time.Time         `json:"observedAt"`
+	TraceID              string            `json:"traceId,omitempty"`
+	TransactionID        string            `json:"transactionId"`
+	RefundID             string            `json:"refundId,omitempty"`
+	Provider             string            `json:"provider"`
+	ProviderConnectionID string            `json:"providerConnectionId"`
+	ProviderPaymentID    string            `json:"providerPaymentId"`
+	ProviderRefundID     string            `json:"providerRefundId,omitempty"`
+	Sequence             *int64            `json:"sequence,omitempty"`
+	Data                 ProviderEventData `json:"data"`
+}
+
+type ProviderEventData struct {
+	Status            string         `json:"status"`
+	RawStatus         string         `json:"rawStatus"`
+	Amount            string         `json:"amount,omitempty"`
+	Currency          string         `json:"currency,omitempty"`
+	ProviderReference string         `json:"providerReference,omitempty"`
+	ProviderData      map[string]any `json:"providerData,omitempty"`
+}
+
+type EventResult struct {
+	Duplicate bool   `json:"duplicate"`
+	Changed   bool   `json:"changed"`
+	Status    string `json:"status,omitempty"`
 }

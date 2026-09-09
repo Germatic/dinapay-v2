@@ -17,6 +17,7 @@ type PaymentStore interface {
 	CompleteCreate(context.Context, Payment, MerchantEvent, string) error
 	ReleaseCreate(context.Context, string, string) error
 	Get(context.Context, string, string, string) (Payment, error)
+	ApplyProviderEvent(context.Context, ProviderEvent, string) (EventResult, error)
 }
 
 // Ledger isolates the current Dinacore API from orchestration. It will be used

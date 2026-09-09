@@ -72,6 +72,8 @@ func (s *Payments) Create(ctx context.Context, principal core.Principal, in core
 	if err != nil {
 		return core.Payment{}, false, fmt.Errorf("map provider completion: %w", err)
 	}
+	payment.ProviderPaymentID = provider.ProviderPaymentID
+	payment.ProviderReference = provider.ProviderReference
 	if !provider.ExpiresAt.IsZero() {
 		payment.ExpirationDate = provider.ExpiresAt
 	}

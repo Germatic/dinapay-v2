@@ -25,6 +25,8 @@ CREATE TABLE IF NOT EXISTS dinapay_v2_payments (
   customer             JSONB,
   metadata             JSONB,
   payment_data         JSONB       NOT NULL,
+  provider_payment_id  TEXT        NOT NULL,
+  provider_reference   TEXT,
   route_decision       JSONB       NOT NULL,
   resource_version     BIGINT      NOT NULL DEFAULT 1,
   created_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -35,6 +37,19 @@ CREATE INDEX IF NOT EXISTS dinapay_v2_payments_account_idx
   ON dinapay_v2_payments (account_id, creation_date DESC);
 CREATE INDEX IF NOT EXISTS dinapay_v2_payments_merchant_idx
   ON dinapay_v2_payments (merchant_id, creation_date DESC);
+ALTER TABLE dinapay_v2_payments ADD COLUMN IF NOT EXISTS provider_payment_id TEXT;
+ALTER TABLE dinapay_v2_payments ADD COLUMN IF NOT EXISTS provider_reference TEXT;
+
+CREATE TABLE IF NOT EXISTS dinapay_v2_provider_events (
+  event_id       TEXT        PRIMARY KEY,
+  event_type     TEXT        NOT NULL,
+  transaction_id UUID       NOT NULL,
+  provider       TEXT        NOT NULL,
+  source         TEXT        NOT NULL,
+  payload        JSONB       NOT NULL,
+  received_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  changed_state  BOOLEAN     NOT NULL DEFAULT false
+);
 
 -- Additive compatibility marker. Existing registrations remain V1.
 ALTER TABLE webhooks ADD COLUMN IF NOT EXISTS api_version TEXT NOT NULL DEFAULT '1';

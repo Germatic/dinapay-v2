@@ -37,3 +37,15 @@ their V1 behavior. V2 deliveries target registrations explicitly marked `2`.
 - `internal/transport/httpapi`: public V2 transport.
 
 Provider credentials and provider payloads never enter this service.
+
+## Provider events
+
+Connectors publish the normalized contract to
+`POST /internal/v1/provider-events` using `SERVICE_TOKEN`. The consumer stores
+an inbox record before applying a transition, rejects provider/connection/order
+mismatches, ignores state regressions, and creates the public webhook in the
+same database transaction.
+
+A first transition to `confirmed` inserts an idempotent `cashin` row in the
+existing `dinacore_balance_outbox`. It does not change the payment to `paid`;
+that state remains reserved for a later settlement/reconciliation decision.

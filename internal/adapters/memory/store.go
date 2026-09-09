@@ -74,3 +74,27 @@ func (s *Store) Get(_ context.Context, accountID, merchantID, transactionID stri
 	}
 	return p, nil
 }
+
+func (s *Store) ApplyProviderEvent(_ context.Context, event core.ProviderEvent, _ string) (core.EventResult, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.events[event.EventID]; ok {
+		return core.EventResult{Duplicate: true}, nil
+	}
+	p, ok := s.payments[event.TransactionID]
+	if !ok {
+		return core.EventResult{}, core.ErrNotFound
+	}
+	status, ok := core.PublicStatusFromProvider(event.Data.Status)
+	if !ok {
+		return core.EventResult{}, core.ErrConflict
+	}
+	changed := p.Status != status && core.PaymentTransitionAllowed(p.Status, status)
+	if changed {
+		p.Status = status
+		p.Version++
+		s.payments[p.TransactionID] = p
+	}
+	s.events[event.EventID] = core.MerchantEvent{EventID: event.EventID, EventType: event.EventType, ResourceID: event.TransactionID}
+	return core.EventResult{Changed: changed, Status: p.Status}, nil
+}

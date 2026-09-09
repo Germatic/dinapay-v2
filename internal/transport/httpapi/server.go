@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -12,18 +13,42 @@ import (
 )
 
 type Server struct {
-	payments *app.Payments
-	auth     core.Authenticator
+	payments     *app.Payments
+	events       *app.ProviderEvents
+	auth         core.Authenticator
+	serviceToken string
 }
 
-func New(payments *app.Payments, auth core.Authenticator) http.Handler {
-	s := &Server{payments: payments, auth: auth}
+func New(payments *app.Payments, events *app.ProviderEvents, auth core.Authenticator, serviceToken string) http.Handler {
+	s := &Server{payments: payments, events: events, auth: auth, serviceToken: serviceToken}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) { writeJSON(w, 200, map[string]string{"status": "up"}) })
 	mux.HandleFunc("GET /ready", func(w http.ResponseWriter, _ *http.Request) { writeJSON(w, 200, map[string]string{"status": "ready"}) })
 	mux.HandleFunc("POST /v2/payments", s.create)
 	mux.HandleFunc("GET /v2/payments/{transactionId}", s.get)
+	mux.HandleFunc("POST /internal/v1/provider-events", s.providerEvent)
 	return mux
+}
+
+func (s *Server) providerEvent(w http.ResponseWriter, r *http.Request) {
+	token := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+	if s.serviceToken == "" || subtle.ConstantTimeCompare([]byte(token), []byte(s.serviceToken)) != 1 {
+		writeError(w, 401, "unauthorized", "invalid service credentials")
+		return
+	}
+	var event core.ProviderEvent
+	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&event); err != nil {
+		writeError(w, 400, "invalid_request", err.Error())
+		return
+	}
+	result, err := s.events.Handle(r.Context(), event)
+	if err != nil {
+		mapError(w, err)
+		return
+	}
+	writeJSON(w, 202, result)
 }
 
 type createRequest struct {
