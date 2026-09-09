@@ -50,15 +50,24 @@ func main() {
 		store, auth = memory.NewStore(), staticAuth
 		slog.Warn("using in-memory persistence; data will not survive restart")
 	}
+	connectors := httpclient.NewConnectors(connectorURLs, os.Getenv("SERVICE_TOKEN"))
 	payments := app.NewPayments(
 		httpclient.NewRouter(env("ROUTER_URL", "http://localhost:8091"), os.Getenv("SERVICE_TOKEN")),
-		httpclient.NewConnectors(connectorURLs, os.Getenv("SERVICE_TOKEN")), store, auth,
+		connectors, store, auth,
 		env("CHECKOUT_BASE_URL", "https://checkout.demo.dinaria.com"),
 	)
-	refunds := app.NewRefunds(store, httpclient.NewLegacyRefundClient(env("LEGACY_DINAPAY_URL", "http://localhost:8090")))
+	var ledger core.Ledger
+	if os.Getenv("DINACORE_BASE_URL") != "" && os.Getenv("DINACORE_API_KEY") != "" {
+		ledger = dinacore.New(os.Getenv("DINACORE_BASE_URL"), os.Getenv("DINACORE_API_KEY"))
+	}
+	nativeRefunds, _ := store.(core.RefundStore)
+	refunds := app.NewRefunds(store, nativeRefunds, httpclient.NewLegacyRefundClient(env("LEGACY_DINAPAY_URL", "http://localhost:8090")), connectors, ledger)
+	if nativeRefunds != nil && ledger != nil {
+		go refunds.Run(context.Background())
+	}
 	events := app.NewProviderEvents(store)
 	if pool != nil && os.Getenv("DINACORE_BASE_URL") != "" && os.Getenv("DINACORE_API_KEY") != "" {
-		go dinacore.NewOutboxWorker(pool, dinacore.New(os.Getenv("DINACORE_BASE_URL"), os.Getenv("DINACORE_API_KEY"))).Run(context.Background())
+		go dinacore.NewOutboxWorker(pool, ledger.(*dinacore.Client)).Run(context.Background())
 	}
 	if pool != nil {
 		go webhooks.NewWorker(pool).Run(context.Background())

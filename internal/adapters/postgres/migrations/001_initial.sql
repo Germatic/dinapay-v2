@@ -54,3 +54,32 @@ CREATE TABLE IF NOT EXISTS dinapay_v2_provider_events (
 -- Additive compatibility marker. Existing registrations remain V1.
 ALTER TABLE webhooks ADD COLUMN IF NOT EXISTS api_version TEXT NOT NULL DEFAULT '1';
 CREATE INDEX IF NOT EXISTS webhooks_api_version_idx ON webhooks (api_version);
+
+CREATE TABLE IF NOT EXISTS dinapay_v2_refunds (
+  refund_id UUID PRIMARY KEY,
+  transaction_id UUID NOT NULL REFERENCES dinapay_v2_payments(transaction_id),
+  account_id TEXT NOT NULL,
+  merchant_id TEXT NOT NULL,
+  external_id TEXT NOT NULL,
+  idempotency_key TEXT NOT NULL,
+  request_hash TEXT NOT NULL,
+  status TEXT NOT NULL,
+  amount TEXT NOT NULL,
+  currency TEXT NOT NULL,
+  reason TEXT,
+  metadata JSONB,
+  provider_refund_id TEXT,
+  provider_status TEXT,
+  balance_debited BOOLEAN NOT NULL DEFAULT false,
+  provider_submitted BOOLEAN NOT NULL DEFAULT false,
+  resource_version BIGINT NOT NULL DEFAULT 1,
+  attempt_count INTEGER NOT NULL DEFAULT 0,
+  next_attempt_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  last_error TEXT,
+  creation_date TIMESTAMPTZ NOT NULL DEFAULT now(),
+  completion_date TIMESTAMPTZ,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (merchant_id,idempotency_key)
+);
+CREATE INDEX IF NOT EXISTS dinapay_v2_refunds_pending_idx ON dinapay_v2_refunds(next_attempt_at,creation_date)
+  WHERE status IN ('pending_debit','pending_provider','pending','pending_compensation');

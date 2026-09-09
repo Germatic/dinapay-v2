@@ -73,11 +73,11 @@ func (s *Server) listRefunds(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, result)
 }
 func (s *Server) getRefund(w http.ResponseWriter, r *http.Request) {
-	_, ok := s.principal(w, r)
+	p, ok := s.principal(w, r)
 	if !ok {
 		return
 	}
-	result, err := s.refunds.Get(r.Context(), bearer(r), r.PathValue("refundId"))
+	result, err := s.refunds.Get(r.Context(), p, bearer(r), r.PathValue("refundId"))
 	if err != nil {
 		mapError(w, err)
 		return

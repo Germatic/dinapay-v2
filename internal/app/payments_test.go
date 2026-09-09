@@ -18,6 +18,13 @@ func (routerStub) Resolve(_ context.Context, r core.RouteRequest) (core.RouteDec
 
 type connectorStub struct{}
 
+func (connectorStub) CreateRefund(context.Context, core.RouteDecision, core.Payment, core.Refund, string) (core.ProviderRefund, error) {
+	return core.ProviderRefund{}, core.ErrUnsupported
+}
+func (connectorStub) GetRefund(context.Context, core.RouteDecision, core.Refund) (core.ProviderRefund, error) {
+	return core.ProviderRefund{}, core.ErrUnsupported
+}
+
 func (connectorStub) CreatePayment(_ context.Context, _ core.RouteDecision, p core.Payment, _, _ string) (core.ProviderPayment, error) {
 	return core.ProviderPayment{TransactionID: p.TransactionID, Provider: "test", ProviderConnectionID: "connection1", ProviderPaymentID: "provider1", Status: "created", ExpiresAt: time.Date(2026, 9, 9, 19, 30, 0, 0, time.UTC), Completion: map[string]any{"type": "redirect", "links": map[string]any{"web": "https://example.com"}}}, nil
 }

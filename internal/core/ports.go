@@ -8,6 +8,8 @@ type Router interface {
 
 type Connector interface {
 	CreatePayment(context.Context, RouteDecision, Payment, string, string) (ProviderPayment, error)
+	CreateRefund(context.Context, RouteDecision, Payment, Refund, string) (ProviderRefund, error)
+	GetRefund(context.Context, RouteDecision, Refund) (ProviderRefund, error)
 }
 
 // LegacyRefunds is a temporary anti-corruption port used while V1 payments
@@ -35,6 +37,15 @@ type PaymentStore interface {
 type Ledger interface {
 	CreditConfirmedPayment(context.Context, Payment, string) error
 	DebitConfirmedRefund(context.Context, string, string, string, string) error
+	CreditFailedRefund(context.Context, string, string, string, string) error
+}
+
+type RefundStore interface {
+	CreateRefund(context.Context, Principal, string, string, CreateRefund) (Refund, bool, error)
+	GetRefund(context.Context, Principal, string) (Refund, error)
+	ListRefunds(context.Context, Principal, string) (RefundList, error)
+	ClaimRefunds(context.Context, int) ([]Refund, error)
+	TransitionRefund(context.Context, string, string, map[string]any) (Refund, error)
 }
 
 type Principal struct {

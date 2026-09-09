@@ -35,6 +35,9 @@ func (c *Client) CreditBalance(ctx context.Context, accountID, refID, amount, cu
 func (c *Client) DebitConfirmedRefund(ctx context.Context, merchantID, refundID, amount, currency string) error {
 	return c.post(ctx, "/api/balance/debit", map[string]string{"merchantId": merchantID, "currency": currency, "amount": amount, "refType": "refund", "refId": refundID})
 }
+func (c *Client) CreditFailedRefund(ctx context.Context, merchantID, refundID, amount, currency string) error {
+	return c.post(ctx, "/api/balance/refund", map[string]string{"merchantId": merchantID, "currency": currency, "amount": amount, "refType": "refund_reservation_release", "refId": refundID})
+}
 
 func (c *Client) post(ctx context.Context, path string, payload any) error {
 	body, err := json.Marshal(payload)
@@ -54,6 +57,9 @@ func (c *Client) post(ctx context.Context, path string, payload any) error {
 		return err
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusPaymentRequired {
+		return core.ErrInsufficientBalance
+	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		message, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 		return fmt.Errorf("dinacore status %d: %s", resp.StatusCode, message)

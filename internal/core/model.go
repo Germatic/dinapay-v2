@@ -73,6 +73,15 @@ type Refund struct {
 	ProviderReference string         `json:"providerReference,omitempty"`
 	Failure           map[string]any `json:"failure,omitempty"`
 	Metadata          map[string]any `json:"metadata,omitempty"`
+	MerchantID        string         `json:"-"`
+	AccountID         string         `json:"-"`
+	ProviderPaymentID string         `json:"-"`
+	Route             RouteDecision  `json:"-"`
+	BalanceDebited    bool           `json:"-"`
+	ProviderSubmitted bool           `json:"-"`
+	ResourceVersion   int64          `json:"-"`
+	NextAttemptAt     time.Time      `json:"-"`
+	OperationalStatus string         `json:"-"`
 }
 
 type RefundList struct {
@@ -126,6 +135,19 @@ type ProviderPayment struct {
 	Status               string         `json:"status"`
 	ExpiresAt            time.Time      `json:"expiresAt"`
 	Completion           map[string]any `json:"completion"`
+}
+type ProviderRefund struct {
+	RefundID             string         `json:"refundId"`
+	TransactionID        string         `json:"transactionId"`
+	Provider             string         `json:"provider"`
+	ProviderConnectionID string         `json:"providerConnectionId"`
+	ProviderRefundID     string         `json:"providerRefundId"`
+	Status               string         `json:"status"`
+	RawStatus            string         `json:"rawStatus,omitempty"`
+	Amount               string         `json:"amount"`
+	Currency             string         `json:"currency"`
+	ObservedAt           time.Time      `json:"observedAt"`
+	ProviderData         map[string]any `json:"providerData,omitempty"`
 }
 
 type MerchantEvent struct {
