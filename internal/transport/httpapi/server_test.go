@@ -5,6 +5,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/Germatic/dinapay-v2/internal/core"
 )
 
 func TestRequestIDIsGeneratedAndReturnedInErrors(t *testing.T) {
@@ -31,5 +33,19 @@ func TestValidClientRequestIDIsPreserved(t *testing.T) {
 	h.ServeHTTP(recorder, req)
 	if got := recorder.Header().Get("X-Request-Id"); got != "merchant-request-123" {
 		t.Fatalf("X-Request-Id = %q", got)
+	}
+}
+
+func TestTraceparentIsGeneratedAndReturned(t *testing.T) {
+	h := withRequestID(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if core.Traceparent(r.Context()) == "" {
+			t.Fatal("traceparent missing from context")
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	recorder := httptest.NewRecorder()
+	h.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/test", nil))
+	if got := recorder.Header().Get("traceparent"); !validTraceparent(got) {
+		t.Fatalf("invalid generated traceparent %q", got)
 	}
 }

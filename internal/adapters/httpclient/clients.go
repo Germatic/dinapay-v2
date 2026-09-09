@@ -134,6 +134,9 @@ func postJSON(ctx context.Context, client *http.Client, url, token, idempotencyK
 	if token != "" {
 		req.Header.Set("Authorization", "Bearer "+token)
 	}
+	if requestID := core.RequestID(ctx); requestID != "" {
+		req.Header.Set("X-Request-Id", requestID)
+	}
 	if idempotencyKey != "" {
 		req.Header.Set("Idempotency-Key", idempotencyKey)
 	}
@@ -158,6 +161,9 @@ func WithTraceparent(ctx context.Context, value string) context.Context {
 	return context.WithValue(ctx, traceKey{}, value)
 }
 func Traceparent(ctx context.Context) string {
+	if value := core.Traceparent(ctx); value != "" {
+		return value
+	}
 	value, _ := ctx.Value(traceKey{}).(string)
 	return value
 }

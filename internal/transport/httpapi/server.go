@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
@@ -40,6 +41,7 @@ func New(payments *app.Payments, refunds *app.Refunds, events *app.ProviderEvent
 
 func withRequestID(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		started := time.Now()
 		id := r.Header.Get("X-Request-Id")
 		if !validRequestID(id) {
 			var raw [16]byte
@@ -49,9 +51,61 @@ func withRequestID(next http.Handler) http.Handler {
 				id = fmt.Sprintf("%x-%x-%x-%x-%x", raw[0:4], raw[4:6], raw[6:8], raw[8:10], raw[10:16])
 			}
 		}
+		traceparent := r.Header.Get("traceparent")
+		if !validTraceparent(traceparent) {
+			traceparent = newTraceparent()
+		}
 		w.Header().Set("X-Request-Id", id)
-		next.ServeHTTP(w, r)
+		w.Header().Set("traceparent", traceparent)
+		capture := &statusWriter{ResponseWriter: w, status: http.StatusOK}
+		ctx := core.WithObservability(r.Context(), id, traceparent)
+		next.ServeHTTP(capture, r.WithContext(ctx))
+		if r.URL.Path != "/health" && r.URL.Path != "/ready" {
+			slog.Info("http request", "method", r.Method, "path", r.URL.Path, "status", capture.status, "duration_ms", time.Since(started).Milliseconds(), "request_id", id, "traceparent", traceparent)
+		}
 	})
+}
+
+type statusWriter struct {
+	http.ResponseWriter
+	status      int
+	wroteHeader bool
+}
+
+func (w *statusWriter) WriteHeader(status int) {
+	if w.wroteHeader {
+		return
+	}
+	w.wroteHeader = true
+	w.status = status
+	w.ResponseWriter.WriteHeader(status)
+}
+
+func validTraceparent(value string) bool {
+	if len(value) != 55 || value[2] != '-' || value[35] != '-' || value[52] != '-' {
+		return false
+	}
+	for i, char := range value {
+		if i == 2 || i == 35 || i == 52 {
+			continue
+		}
+		if (char < '0' || char > '9') && (char < 'a' || char > 'f') {
+			return false
+		}
+	}
+	return value[3:35] != strings.Repeat("0", 32) && value[36:52] != strings.Repeat("0", 16)
+}
+
+func newTraceparent() string {
+	var traceID [16]byte
+	var spanID [8]byte
+	if _, err := rand.Read(traceID[:]); err != nil {
+		return ""
+	}
+	if _, err := rand.Read(spanID[:]); err != nil {
+		return ""
+	}
+	return fmt.Sprintf("00-%x-%x-01", traceID, spanID)
 }
 
 func validRequestID(id string) bool {
