@@ -34,3 +34,16 @@ func (a *Auth) Authenticate(_ context.Context, token string) (core.Principal, er
 	}
 	return p, nil
 }
+
+func (a *Auth) ResolveMerchant(_ context.Context, p core.Principal, requested string) (string, error) {
+	if requested == "" {
+		if p.MerchantID == "" {
+			return "", core.ErrUnauthorized
+		}
+		return p.MerchantID, nil
+	}
+	if p.MerchantID != requested {
+		return "", core.ErrUnauthorized
+	}
+	return requested, nil
+}

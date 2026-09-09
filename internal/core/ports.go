@@ -33,4 +33,5 @@ type Principal struct {
 
 type Authenticator interface {
 	Authenticate(context.Context, string) (Principal, error)
+	ResolveMerchant(context.Context, Principal, string) (string, error)
 }

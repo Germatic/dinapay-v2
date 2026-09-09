@@ -8,7 +8,7 @@ import (
 
 var (
 	ErrInvalid      = errors.New("invalid request")
-	ErrUnauthorized = errors.New("unauthorized")
+	ErrUnauthorized = core.ErrUnauthorized
 	ErrNotFound     = core.ErrNotFound
 	ErrConflict     = core.ErrConflict
 	ErrInProgress   = core.ErrInProgress

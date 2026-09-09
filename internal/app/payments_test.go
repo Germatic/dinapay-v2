@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/Germatic/dinapay-v2/internal/adapters/memory"
+	"github.com/Germatic/dinapay-v2/internal/adapters/static"
 	"github.com/Germatic/dinapay-v2/internal/core"
 )
 
@@ -22,7 +23,8 @@ func (connectorStub) CreatePayment(_ context.Context, _ core.RouteDecision, p co
 }
 
 func TestCreateIsIdempotent(t *testing.T) {
-	svc := NewPayments(routerStub{}, connectorStub{}, memory.NewStore(), "https://checkout.demo.dinaria.com")
+	auth := static.NewAuth("test-key=account1:merchant1")
+	svc := NewPayments(routerStub{}, connectorStub{}, memory.NewStore(), auth, "https://checkout.demo.dinaria.com")
 	in := core.CreatePayment{ExternalID: "order1", Amount: "0.25", Currency: "USDT", PaymentMethod: "crypto_payment", Customer: core.Customer{"type": "individual", "externalId": "customer1", "country": "UY"}}
 	p1, replay1, err := svc.Create(context.Background(), core.Principal{MerchantID: "merchant1"}, in, "key1")
 	if err != nil || replay1 {

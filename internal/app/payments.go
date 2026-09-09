@@ -16,27 +16,22 @@ type Payments struct {
 	router       core.Router
 	connector    core.Connector
 	store        core.PaymentStore
+	merchants    core.Authenticator
 	checkoutBase string
 	now          func() time.Time
 }
 
-func NewPayments(router core.Router, connector core.Connector, store core.PaymentStore, checkoutBase string) *Payments {
-	return &Payments{router: router, connector: connector, store: store, checkoutBase: strings.TrimRight(checkoutBase, "/"), now: time.Now}
+func NewPayments(router core.Router, connector core.Connector, store core.PaymentStore, merchants core.Authenticator, checkoutBase string) *Payments {
+	return &Payments{router: router, connector: connector, store: store, merchants: merchants, checkoutBase: strings.TrimRight(checkoutBase, "/"), now: time.Now}
 }
 
 func (s *Payments) Create(ctx context.Context, principal core.Principal, in core.CreatePayment, idempotencyKey string) (core.Payment, bool, error) {
 	if strings.TrimSpace(idempotencyKey) == "" || in.ExternalID == "" || in.Amount == "" || in.Currency == "" || in.PaymentMethod == "" || len(in.Customer) == 0 {
 		return core.Payment{}, false, ErrInvalid
 	}
-	merchantID := principal.MerchantID
-	if in.MerchantID != "" {
-		if principal.AccountID == "" || principal.MerchantID == "" || principal.MerchantID != in.MerchantID {
-			return core.Payment{}, false, ErrUnauthorized
-		}
-		merchantID = in.MerchantID
-	}
-	if merchantID == "" {
-		return core.Payment{}, false, ErrInvalid
+	merchantID, err := s.merchants.ResolveMerchant(ctx, principal, in.MerchantID)
+	if err != nil {
+		return core.Payment{}, false, err
 	}
 	hash := requestHash(in)
 	now := s.now().UTC()
