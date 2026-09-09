@@ -1,9 +1,11 @@
 package httpapi
 
 import (
+	"crypto/rand"
 	"crypto/subtle"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -33,7 +35,35 @@ func New(payments *app.Payments, refunds *app.Refunds, events *app.ProviderEvent
 	mux.HandleFunc("GET /v2/payments/{transactionId}/refunds", s.listRefunds)
 	mux.HandleFunc("GET /v2/refunds/{refundId}", s.getRefund)
 	mux.HandleFunc("POST /internal/v1/provider-events", s.providerEvent)
-	return mux
+	return withRequestID(mux)
+}
+
+func withRequestID(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		id := r.Header.Get("X-Request-Id")
+		if !validRequestID(id) {
+			var raw [16]byte
+			if _, err := rand.Read(raw[:]); err != nil {
+				id = fmt.Sprintf("req-%d", time.Now().UnixNano())
+			} else {
+				id = fmt.Sprintf("%x-%x-%x-%x-%x", raw[0:4], raw[4:6], raw[6:8], raw[8:10], raw[10:16])
+			}
+		}
+		w.Header().Set("X-Request-Id", id)
+		next.ServeHTTP(w, r)
+	})
+}
+
+func validRequestID(id string) bool {
+	if id == "" || len(id) > 128 {
+		return false
+	}
+	for _, c := range id {
+		if (c < 'a' || c > 'z') && (c < 'A' || c > 'Z') && (c < '0' || c > '9') && c != '-' && c != '_' && c != '.' {
+			return false
+		}
+	}
+	return true
 }
 
 func (s *Server) createRefund(w http.ResponseWriter, r *http.Request) {
