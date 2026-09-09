@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -70,7 +71,7 @@ func main() {
 		go dinacore.NewOutboxWorker(pool, ledger.(*dinacore.Client)).Run(context.Background())
 	}
 	if pool != nil {
-		go webhooks.NewWorker(pool).Run(context.Background())
+		go webhooks.NewWorker(pool, envInt("WEBHOOK_DISPATCH_CONCURRENCY", 8)).Run(context.Background())
 	}
 	server := &http.Server{Addr: ":" + env("PORT", "8090"), Handler: httpapi.New(payments, refunds, events, auth, os.Getenv("SERVICE_TOKEN")), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 15 * time.Second, IdleTimeout: 60 * time.Second}
 	slog.Info("dinapay-v2 starting", "addr", server.Addr)
@@ -78,6 +79,14 @@ func main() {
 		slog.Error("server stopped", "error", err)
 		os.Exit(1)
 	}
+}
+
+func envInt(key string, fallback int) int {
+	value, err := strconv.Atoi(os.Getenv(key))
+	if err != nil || value < 1 {
+		return fallback
+	}
+	return value
 }
 
 func env(key, fallback string) string {

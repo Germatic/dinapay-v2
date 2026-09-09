@@ -42,16 +42,21 @@ func (w *OutboxWorker) flush(ctx context.Context) {
 		slog.Error("v2 balance outbox claim failed", "error", err)
 		return
 	}
-	defer rows.Close()
 	type item struct{ id, refID, accountID, amount, currency string }
 	var items []item
 	for rows.Next() {
 		var x item
 		if err = rows.Scan(&x.id, &x.refID, &x.accountID, &x.amount, &x.currency); err != nil {
+			rows.Close()
 			return
 		}
 		items = append(items, x)
 	}
+	if err = rows.Err(); err != nil {
+		rows.Close()
+		return
+	}
+	rows.Close()
 	for _, x := range items {
 		if err = w.client.CreditBalance(ctx, x.accountID, x.refID, x.amount, x.currency); err != nil {
 			_, _ = w.db.Exec(ctx, `UPDATE dinacore_balance_outbox SET attempt_count=attempt_count+1,last_error=$2,next_attempt_at=now()+least(interval '1 hour',interval '10 seconds'*power(2,least(attempt_count,8))) WHERE id=$1`, x.id, err.Error())
