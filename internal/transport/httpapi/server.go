@@ -61,8 +61,9 @@ func withRequestID(next http.Handler) http.Handler {
 		w.Header().Set("traceparent", traceparent)
 		capture := &statusWriter{ResponseWriter: w, status: http.StatusOK}
 		ctx := core.WithObservability(r.Context(), id, traceparent)
-		next.ServeHTTP(capture, r.WithContext(ctx))
-		observability.ObserveHTTP(r.Method, r.Pattern, capture.status, time.Since(started))
+		request := r.WithContext(ctx)
+		next.ServeHTTP(capture, request)
+		observability.ObserveHTTP(r.Method, request.Pattern, capture.status, time.Since(started))
 		if r.URL.Path != "/health" && r.URL.Path != "/ready" && r.URL.Path != "/metrics" {
 			slog.Info("http request", "method", r.Method, "path", r.URL.Path, "status", capture.status, "duration_ms", time.Since(started).Milliseconds(), "request_id", id, "traceparent", traceparent)
 		}
