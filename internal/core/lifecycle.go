@@ -28,6 +28,10 @@ func PaymentTransitionAllowed(current, next string) bool {
 		return next == "pending" || next == "confirmed" || next == "failed" || next == "cancelled" || next == "expired"
 	case "pending":
 		return next == "confirmed" || next == "failed" || next == "cancelled" || next == "expired"
+	case "expired":
+		// Provider confirmation is authoritative: delivery may be delayed even
+		// though the funds were accepted before the effective expiration.
+		return next == "confirmed"
 	default:
 		return false
 	}

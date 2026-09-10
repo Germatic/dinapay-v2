@@ -37,3 +37,30 @@ func TestProviderEventIsIdempotentAndCannotRegress(t *testing.T) {
 		t.Fatalf("late event: %#v %v", result, err)
 	}
 }
+
+func TestLateProviderConfirmationOverridesExpiration(t *testing.T) {
+	store := memory.NewStore()
+	auth := static.NewAuth("test-key=account1:merchant1")
+	payments := NewPayments(routerStub{}, connectorStub{}, store, auth, "https://checkout.demo.dinaria.com")
+	p, _, err := payments.Create(context.Background(), core.Principal{AccountID: "account1", MerchantID: "merchant1"}, core.CreatePayment{ExternalID: "order-late-confirmation", Amount: "1.00", Currency: "MXN", PaymentMethod: "bank_transfer", Customer: core.Customer{"type": "individual", "country": "MX"}}, "late-confirmation-key")
+	if err != nil {
+		t.Fatal(err)
+	}
+	events := NewProviderEvents(store)
+	base := core.ProviderEvent{EventVersion: "1", Source: "timer", ObservedAt: time.Now(), TransactionID: p.TransactionID, Provider: "test", ProviderConnectionID: "connection1", ProviderPaymentID: "provider1"}
+	expired := base
+	expired.EventID = "provider-expired"
+	expired.EventType = "payment.provider_expired"
+	expired.Data = core.ProviderEventData{Status: "expired", RawStatus: "validity_elapsed"}
+	if result, handleErr := events.Handle(context.Background(), expired); handleErr != nil || !result.Changed || result.Status != "expired" {
+		t.Fatalf("expired result=%#v err=%v", result, handleErr)
+	}
+	confirmed := base
+	confirmed.EventID = "provider-confirmed-late"
+	confirmed.EventType = "payment.provider_confirmed"
+	confirmed.Source = "webhook"
+	confirmed.Data = core.ProviderEventData{Status: "confirmed", RawStatus: "spei.in.completed"}
+	if result, handleErr := events.Handle(context.Background(), confirmed); handleErr != nil || !result.Changed || result.Status != "confirmed" {
+		t.Fatalf("confirmed result=%#v err=%v", result, handleErr)
+	}
+}
