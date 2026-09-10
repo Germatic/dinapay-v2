@@ -218,7 +218,11 @@ func postJSON(ctx context.Context, client *http.Client, url, token, idempotencyK
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		return fmt.Errorf("upstream status %d: %s", resp.StatusCode, b)
+		err := fmt.Errorf("upstream status %d: %s", resp.StatusCode, b)
+		if resp.StatusCode == http.StatusBadRequest || resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden || resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusConflict || resp.StatusCode == http.StatusUnprocessableEntity {
+			return fmt.Errorf("%w: %v", core.ErrProviderRejected, err)
+		}
+		return err
 	}
 	return json.NewDecoder(resp.Body).Decode(out)
 }

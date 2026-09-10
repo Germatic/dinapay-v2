@@ -102,6 +102,12 @@ func (s *Payouts) process(ctx context.Context, p core.Payout) {
 	case "pending_provider":
 		result, err := s.connector.CreatePayout(ctx, p.Route, p, "payout:"+p.PayoutID)
 		if err != nil {
+			if errors.Is(err, core.ErrProviderRejected) {
+				f := transition("pending_provider")
+				f["lastError"] = "provider rejected payout"
+				_, _ = s.store.TransitionPayout(ctx, p.PayoutID, "pending_compensation", f)
+				return
+			}
 			result, err = s.connector.GetPayout(ctx, p.Route, p)
 			if err != nil {
 				f := transition("pending_provider")

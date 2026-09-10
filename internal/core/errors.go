@@ -10,4 +10,5 @@ var (
 	ErrUnauthorized        = errors.New("unauthorized")
 	ErrUnsupported         = errors.New("operation not supported")
 	ErrInsufficientBalance = errors.New("insufficient balance")
+	ErrProviderRejected    = errors.New("provider rejected request")
 )

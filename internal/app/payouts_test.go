@@ -100,6 +100,21 @@ func TestPayoutProviderRejectionCompensates(t *testing.T) {
 		t.Fatalf("credits=%d transitions=%#v", ledger.credits, store.transitions)
 	}
 }
+
+func TestPayoutProviderRejectionErrorCompensatesWithoutLookup(t *testing.T) {
+	store := &payoutStoreStub{}
+	ledger := &payoutLedgerStub{}
+	connector := &payoutConnectorStub{createErr: core.ErrProviderRejected}
+	svc := NewPayouts(store, nil, connector, ledger, nil)
+	svc.process(context.Background(), testPayout("pending_provider"))
+	if connector.gets != 0 || len(store.transitions) != 1 || store.transitions[0].next != "pending_compensation" {
+		t.Fatalf("gets=%d transitions=%#v", connector.gets, store.transitions)
+	}
+	svc.process(context.Background(), testPayout("pending_compensation"))
+	if ledger.credits != 1 || store.transitions[1].next != "failed" {
+		t.Fatalf("credits=%d transitions=%#v", ledger.credits, store.transitions)
+	}
+}
 func TestPayoutAmbiguousCreateQueriesBeforeRetry(t *testing.T) {
 	store := &payoutStoreStub{}
 	ledger := &payoutLedgerStub{}
