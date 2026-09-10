@@ -17,6 +17,7 @@ import (
 	"github.com/Germatic/dinapay-v2/internal/adapters/webhooks"
 	"github.com/Germatic/dinapay-v2/internal/app"
 	"github.com/Germatic/dinapay-v2/internal/core"
+	"github.com/Germatic/dinapay-v2/internal/observability"
 	"github.com/Germatic/dinapay-v2/internal/transport/httpapi"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -72,12 +73,32 @@ func main() {
 	}
 	if pool != nil {
 		go webhooks.NewWorker(pool, envInt("WEBHOOK_DISPATCH_CONCURRENCY", 8)).Run(context.Background())
+		go collectMetrics(context.Background(), pool)
 	}
 	server := &http.Server{Addr: ":" + env("PORT", "8090"), Handler: httpapi.New(payments, refunds, events, auth, os.Getenv("SERVICE_TOKEN")), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 15 * time.Second, IdleTimeout: 60 * time.Second}
 	slog.Info("dinapay-v2 starting", "addr", server.Addr)
 	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		slog.Error("server stopped", "error", err)
 		os.Exit(1)
+	}
+}
+func collectMetrics(ctx context.Context, pool *pgxpool.Pool) {
+	ticker := time.NewTicker(15 * time.Second)
+	defer ticker.Stop()
+	for {
+		var webhooks, webhookAge, ledger, ledgerAge float64
+		err := pool.QueryRow(ctx, `SELECT count(*)::float8,COALESCE(EXTRACT(EPOCH FROM now()-min(created_at)),0)::float8 FROM webhook_deliveries WHERE status='pending'`).Scan(&webhooks, &webhookAge)
+		if err == nil {
+			err = pool.QueryRow(ctx, `SELECT count(*)::float8,COALESCE(EXTRACT(EPOCH FROM now()-min(created_at)),0)::float8 FROM dinacore_balance_outbox WHERE sent=false`).Scan(&ledger, &ledgerAge)
+		}
+		if err == nil {
+			observability.SetPersistent(webhooks, webhookAge, ledger, ledgerAge)
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
 	}
 }
 

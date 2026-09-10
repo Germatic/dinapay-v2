@@ -26,7 +26,17 @@ var metrics = struct {
 	sync.RWMutex
 	requests  map[httpKey]uint64
 	durations map[durationKey]histogram
-}{requests: map[httpKey]uint64{}, durations: map[durationKey]histogram{}}
+	gauges    map[string]float64
+}{requests: map[httpKey]uint64{}, durations: map[durationKey]histogram{}, gauges: map[string]float64{}}
+
+func SetPersistent(webhooks, webhookAge, ledger, ledgerAge float64) {
+	metrics.Lock()
+	defer metrics.Unlock()
+	metrics.gauges["dinapay_webhook_outbox_pending"] = webhooks
+	metrics.gauges["dinapay_webhook_outbox_oldest_seconds"] = webhookAge
+	metrics.gauges["dinapay_ledger_outbox_pending"] = ledger
+	metrics.gauges["dinapay_ledger_outbox_oldest_seconds"] = ledgerAge
+}
 
 func ObserveHTTP(method, route string, status int, elapsed time.Duration) {
 	if route == "" {
@@ -65,6 +75,9 @@ func Handler() http.Handler {
 			lines = append(lines, fmt.Sprintf("dinapay_http_request_duration_seconds_bucket{service=%q,method=%q,route=%q,le=\"+Inf\"} %d", service, key.method, key.route, h.count))
 			lines = append(lines, fmt.Sprintf("dinapay_http_request_duration_seconds_sum{service=%q,method=%q,route=%q} %g", service, key.method, key.route, h.sum))
 			lines = append(lines, fmt.Sprintf("dinapay_http_request_duration_seconds_count{service=%q,method=%q,route=%q} %d", service, key.method, key.route, h.count))
+		}
+		for name, value := range metrics.gauges {
+			lines = append(lines, fmt.Sprintf("%s %g", name, value))
 		}
 		sort.Strings(lines)
 		_, _ = fmt.Fprintln(w, strings.Join(lines, "\n"))
