@@ -90,6 +90,67 @@ type RefundList struct {
 	Data []Refund `json:"data"`
 }
 
+type Money struct {
+	Amount   string `json:"amount"`
+	Currency string `json:"currency"`
+}
+
+type PayoutDestination struct {
+	Country     string         `json:"country"`
+	Currency    string         `json:"currency"`
+	Amount      string         `json:"amount,omitempty"`
+	Beneficiary map[string]any `json:"beneficiary"`
+	Rail        map[string]any `json:"rail"`
+}
+
+type CreatePayout struct {
+	MerchantID  string            `json:"merchantId,omitempty"`
+	ExternalID  string            `json:"externalId"`
+	Source      Money             `json:"source"`
+	Destination PayoutDestination `json:"destination"`
+	Remitter    map[string]any    `json:"remitter,omitempty"`
+	Description string            `json:"description,omitempty"`
+	Metadata    map[string]any    `json:"metadata,omitempty"`
+}
+
+type Payout struct {
+	PayoutID          string            `json:"payoutId"`
+	ExternalID        string            `json:"externalId"`
+	Source            Money             `json:"source"`
+	Destination       PayoutDestination `json:"destination"`
+	Pricing           map[string]any    `json:"pricing,omitempty"`
+	Remitter          map[string]any    `json:"remitter,omitempty"`
+	Description       string            `json:"description,omitempty"`
+	Status            string            `json:"status"`
+	BankSystemTrxID   string            `json:"bankSystemTrxId,omitempty"`
+	CreationDate      time.Time         `json:"creationDate"`
+	ConfirmationDate  *time.Time        `json:"confirmationDate,omitempty"`
+	FailureDate       *time.Time        `json:"failureDate,omitempty"`
+	CancellationDate  *time.Time        `json:"cancellationDate,omitempty"`
+	ReversalDate      *time.Time        `json:"reversalDate,omitempty"`
+	Failure           map[string]any    `json:"failure,omitempty"`
+	Metadata          map[string]any    `json:"metadata,omitempty"`
+	AccountID         string            `json:"-"`
+	MerchantID        string            `json:"-"`
+	ProviderPayoutID  string            `json:"-"`
+	Route             RouteDecision     `json:"-"`
+	BalanceDebited    bool              `json:"-"`
+	ProviderSubmitted bool              `json:"-"`
+	ResourceVersion   int64             `json:"-"`
+	NextAttemptAt     time.Time         `json:"-"`
+	OperationalStatus string            `json:"-"`
+}
+
+type PayoutListOptions struct {
+	Limit                      int
+	Cursor, Status, ExternalID string
+}
+type PayoutPage struct {
+	Data       []Payout `json:"data"`
+	HasMore    bool     `json:"hasMore"`
+	NextCursor string   `json:"nextCursor,omitempty"`
+}
+
 type RouteRequest struct {
 	RequestID           string   `json:"requestId"`
 	TransactionID       string   `json:"transactionId"`
@@ -98,6 +159,7 @@ type RouteRequest struct {
 	Operation           string   `json:"operation"`
 	Amount              string   `json:"amount"`
 	Currency            string   `json:"currency"`
+	DestinationCurrency string   `json:"destinationCurrency,omitempty"`
 	MarketCountry       string   `json:"marketCountry"`
 	PaymentMethod       string   `json:"paymentMethod"`
 	CustomerHasDocument bool     `json:"customerHasDocument,omitempty"`
@@ -153,6 +215,20 @@ type ProviderRefund struct {
 	ObservedAt           time.Time      `json:"observedAt"`
 	ProviderData         map[string]any `json:"providerData,omitempty"`
 }
+type ProviderPayout struct {
+	PayoutID             string         `json:"payoutId"`
+	Provider             string         `json:"provider"`
+	ProviderConnectionID string         `json:"providerConnectionId"`
+	ProviderPayoutID     string         `json:"providerPayoutId"`
+	ProviderReference    string         `json:"providerReference,omitempty"`
+	Status               string         `json:"status"`
+	RawStatus            string         `json:"rawStatus,omitempty"`
+	Source               Money          `json:"source"`
+	DestinationAmount    string         `json:"destinationAmount,omitempty"`
+	DestinationCurrency  string         `json:"destinationCurrency,omitempty"`
+	ObservedAt           time.Time      `json:"observedAt"`
+	ProviderData         map[string]any `json:"providerData,omitempty"`
+}
 
 type MerchantEvent struct {
 	EventID         string
@@ -171,12 +247,14 @@ type ProviderEvent struct {
 	OccurredAt           time.Time         `json:"occurredAt"`
 	ObservedAt           time.Time         `json:"observedAt"`
 	TraceID              string            `json:"traceId,omitempty"`
-	TransactionID        string            `json:"transactionId"`
+	TransactionID        string            `json:"transactionId,omitempty"`
 	RefundID             string            `json:"refundId,omitempty"`
+	PayoutID             string            `json:"payoutId,omitempty"`
 	Provider             string            `json:"provider"`
 	ProviderConnectionID string            `json:"providerConnectionId"`
-	ProviderPaymentID    string            `json:"providerPaymentId"`
+	ProviderPaymentID    string            `json:"providerPaymentId,omitempty"`
 	ProviderRefundID     string            `json:"providerRefundId,omitempty"`
+	ProviderPayoutID     string            `json:"providerPayoutId,omitempty"`
 	Sequence             *int64            `json:"sequence,omitempty"`
 	Data                 ProviderEventData `json:"data"`
 }

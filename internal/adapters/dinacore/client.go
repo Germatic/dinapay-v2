@@ -46,6 +46,12 @@ func (c *Client) DebitConfirmedRefund(ctx context.Context, merchantID, refundID,
 func (c *Client) CreditFailedRefund(ctx context.Context, merchantID, refundID, amount, currency string) error {
 	return c.post(ctx, "/api/balance/refund", map[string]string{"merchantId": merchantID, "currency": currency, "amount": amount, "refType": "refund_reservation_release", "refId": refundID})
 }
+func (c *Client) DebitPayout(ctx context.Context, accountID, payoutID, amount, currency string) error {
+	return c.post(ctx, "/api/balance/debit", map[string]string{"merchantId": accountID, "currency": currency, "amount": amount, "refType": "payout", "refId": payoutID})
+}
+func (c *Client) CreditFailedPayout(ctx context.Context, accountID, payoutID, amount, currency string) error {
+	return c.post(ctx, "/api/balance/refund", map[string]string{"merchantId": accountID, "currency": currency, "amount": amount, "refType": "payout_reservation_release", "refId": payoutID})
+}
 
 func (c *Client) post(ctx context.Context, path string, payload any) error {
 	body, err := json.Marshal(payload)

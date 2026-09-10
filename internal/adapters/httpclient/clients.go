@@ -121,6 +121,74 @@ func (c *Connectors) GetRefund(ctx context.Context, route core.RouteDecision, r 
 	return out, err
 }
 
+func (c *Connectors) CreatePayout(ctx context.Context, route core.RouteDecision, p core.Payout, key string) (core.ProviderPayout, error) {
+	var out core.ProviderPayout
+	base, ok := c.urls[route.ConnectorID]
+	if !ok {
+		return out, fmt.Errorf("unknown connector %q", route.ConnectorID)
+	}
+	command := map[string]any{"operationId": "payout:" + p.PayoutID + ":create", "payoutId": p.PayoutID, "provider": route.Provider, "providerConnectionId": route.ProviderConnectionID, "source": p.Source, "destination": p.Destination}
+	if route.Binding != nil {
+		command["binding"] = route.Binding
+	}
+	if len(p.Remitter) > 0 {
+		command["remitter"] = p.Remitter
+	}
+	if p.Description != "" {
+		command["description"] = p.Description
+	}
+	if len(p.Metadata) > 0 {
+		command["metadata"] = p.Metadata
+	}
+	err := postJSON(ctx, c.client, strings.TrimRight(base, "/")+"/v1/payouts", c.token, key, command, &out)
+	return out, err
+}
+
+func (c *Connectors) GetPayout(ctx context.Context, route core.RouteDecision, p core.Payout) (core.ProviderPayout, error) {
+	var out core.ProviderPayout
+	base, ok := c.urls[route.ConnectorID]
+	if !ok {
+		return out, fmt.Errorf("unknown connector %q", route.ConnectorID)
+	}
+	id := p.ProviderPayoutID
+	if id == "" {
+		id = p.PayoutID
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(base, "/")+"/v1/payouts/"+id, nil)
+	if err != nil {
+		return out, err
+	}
+	req.Header.Set("Authorization", "Bearer "+c.token)
+	req.Header.Set("Provider-Connection-Id", route.ProviderConnectionID)
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return out, err
+	}
+	defer resp.Body.Close()
+	defer func() { _, _ = io.Copy(io.Discard, resp.Body) }()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		return out, fmt.Errorf("upstream status %d: %s", resp.StatusCode, b)
+	}
+	err = json.NewDecoder(resp.Body).Decode(&out)
+	return out, err
+}
+
+func (c *Connectors) CancelPayout(ctx context.Context, route core.RouteDecision, p core.Payout, reason string) (core.ProviderPayout, error) {
+	var out core.ProviderPayout
+	base, ok := c.urls[route.ConnectorID]
+	if !ok {
+		return out, fmt.Errorf("unknown connector %q", route.ConnectorID)
+	}
+	id := p.ProviderPayoutID
+	if id == "" {
+		id = p.PayoutID
+	}
+	command := map[string]any{"operationId": "payout:" + p.PayoutID + ":cancel", "payoutId": p.PayoutID, "providerConnectionId": route.ProviderConnectionID, "reason": reason}
+	err := postJSON(ctx, c.client, strings.TrimRight(base, "/")+"/v1/payouts/"+id+"/cancel", c.token, command["operationId"].(string), command, &out)
+	return out, err
+}
+
 func postJSON(ctx context.Context, client *http.Client, url, token, idempotencyKey string, in, out any) error {
 	body, err := json.Marshal(in)
 	if err != nil {

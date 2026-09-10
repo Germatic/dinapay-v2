@@ -29,13 +29,15 @@ var metrics = struct {
 	gauges    map[string]float64
 }{requests: map[httpKey]uint64{}, durations: map[durationKey]histogram{}, gauges: map[string]float64{}}
 
-func SetPersistent(webhooks, webhookAge, ledger, ledgerAge float64) {
+func SetPersistent(webhooks, webhookAge, ledger, ledgerAge, unknownPayouts, unknownPayoutAge float64) {
 	metrics.Lock()
 	defer metrics.Unlock()
 	metrics.gauges["dinapay_webhook_outbox_pending"] = webhooks
 	metrics.gauges["dinapay_webhook_outbox_oldest_seconds"] = webhookAge
 	metrics.gauges["dinapay_ledger_outbox_pending"] = ledger
 	metrics.gauges["dinapay_ledger_outbox_oldest_seconds"] = ledgerAge
+	metrics.gauges["dinapay_payout_provider_unknown"] = unknownPayouts
+	metrics.gauges["dinapay_payout_provider_unknown_oldest_seconds"] = unknownPayoutAge
 }
 
 func ObserveHTTP(method, route string, status int, elapsed time.Duration) {

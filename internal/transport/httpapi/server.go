@@ -21,13 +21,14 @@ import (
 type Server struct {
 	payments     *app.Payments
 	refunds      *app.Refunds
+	payouts      *app.Payouts
 	events       *app.ProviderEvents
 	auth         core.Authenticator
 	serviceToken string
 }
 
-func New(payments *app.Payments, refunds *app.Refunds, events *app.ProviderEvents, auth core.Authenticator, serviceToken string) http.Handler {
-	s := &Server{payments: payments, refunds: refunds, events: events, auth: auth, serviceToken: serviceToken}
+func New(payments *app.Payments, refunds *app.Refunds, payouts *app.Payouts, events *app.ProviderEvents, auth core.Authenticator, serviceToken string) http.Handler {
+	s := &Server{payments: payments, refunds: refunds, payouts: payouts, events: events, auth: auth, serviceToken: serviceToken}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) { writeJSON(w, 200, map[string]string{"status": "up"}) })
 	mux.HandleFunc("GET /ready", func(w http.ResponseWriter, _ *http.Request) { writeJSON(w, 200, map[string]string{"status": "ready"}) })
@@ -38,8 +39,81 @@ func New(payments *app.Payments, refunds *app.Refunds, events *app.ProviderEvent
 	mux.HandleFunc("POST /v2/payments/{transactionId}/refunds", s.createRefund)
 	mux.HandleFunc("GET /v2/payments/{transactionId}/refunds", s.listRefunds)
 	mux.HandleFunc("GET /v2/refunds/{refundId}", s.getRefund)
+	mux.HandleFunc("POST /v2/payouts", s.createPayout)
+	mux.HandleFunc("GET /v2/payouts", s.listPayouts)
+	mux.HandleFunc("GET /v2/payouts/{payoutId}", s.getPayout)
 	mux.HandleFunc("POST /internal/v1/provider-events", s.providerEvent)
 	return withRequestID(mux)
+}
+
+func (s *Server) createPayout(w http.ResponseWriter, r *http.Request) {
+	if s.payouts == nil {
+		writeError(w, 422, "payout_not_supported", "payouts are not configured")
+		return
+	}
+	p, ok := s.principal(w, r, "payouts:write")
+	if !ok {
+		return
+	}
+	var in core.CreatePayout
+	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&in); err != nil {
+		writeError(w, 400, "invalid_request", err.Error())
+		return
+	}
+	result, replayed, err := s.payouts.Create(r.Context(), p, r.Header.Get("Idempotency-Key"), in)
+	if err != nil {
+		mapError(w, err)
+		return
+	}
+	if replayed {
+		w.Header().Set("Idempotent-Replayed", "true")
+		writeJSON(w, 200, result)
+		return
+	}
+	writeJSON(w, 201, result)
+}
+func (s *Server) getPayout(w http.ResponseWriter, r *http.Request) {
+	if s.payouts == nil {
+		writeError(w, 422, "payout_not_supported", "payouts are not configured")
+		return
+	}
+	p, ok := s.principal(w, r, "payouts:read")
+	if !ok {
+		return
+	}
+	result, err := s.payouts.Get(r.Context(), p, r.PathValue("payoutId"))
+	if err != nil {
+		mapError(w, err)
+		return
+	}
+	writeJSON(w, 200, result)
+}
+func (s *Server) listPayouts(w http.ResponseWriter, r *http.Request) {
+	if s.payouts == nil {
+		writeError(w, 422, "payout_not_supported", "payouts are not configured")
+		return
+	}
+	p, ok := s.principal(w, r, "payouts:read")
+	if !ok {
+		return
+	}
+	limit := 50
+	if raw := r.URL.Query().Get("limit"); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n < 1 || n > 100 {
+			writeError(w, 400, "invalid_request", "limit must be between 1 and 100")
+			return
+		}
+		limit = n
+	}
+	result, err := s.payouts.List(r.Context(), p, core.PayoutListOptions{Limit: limit, Cursor: r.URL.Query().Get("cursor"), Status: r.URL.Query().Get("status"), ExternalID: r.URL.Query().Get("externalId")})
+	if err != nil {
+		mapError(w, err)
+		return
+	}
+	writeJSON(w, 200, result)
 }
 
 func internalOnly(next http.Handler) http.Handler {

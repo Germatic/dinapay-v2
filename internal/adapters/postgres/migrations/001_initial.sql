@@ -50,6 +50,8 @@ CREATE TABLE IF NOT EXISTS dinapay_v2_provider_events (
   received_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
   changed_state  BOOLEAN     NOT NULL DEFAULT false
 );
+ALTER TABLE dinapay_v2_provider_events ALTER COLUMN transaction_id DROP NOT NULL;
+ALTER TABLE dinapay_v2_provider_events ADD COLUMN IF NOT EXISTS payout_id UUID;
 
 -- Additive compatibility marker. Existing registrations remain V1.
 ALTER TABLE webhooks ADD COLUMN IF NOT EXISTS api_version TEXT NOT NULL DEFAULT '1';
@@ -83,3 +85,25 @@ CREATE TABLE IF NOT EXISTS dinapay_v2_refunds (
 );
 CREATE INDEX IF NOT EXISTS dinapay_v2_refunds_pending_idx ON dinapay_v2_refunds(next_attempt_at,creation_date)
   WHERE status IN ('pending_debit','pending_provider','pending','pending_compensation');
+
+CREATE TABLE IF NOT EXISTS dinapay_v2_payouts (
+  payout_id UUID PRIMARY KEY, account_id TEXT NOT NULL, merchant_id TEXT NOT NULL,
+  external_id TEXT NOT NULL, idempotency_key TEXT NOT NULL, request_hash TEXT NOT NULL,
+  status TEXT NOT NULL, source_amount TEXT NOT NULL, source_currency TEXT NOT NULL,
+  destination JSONB NOT NULL, pricing JSONB, remitter JSONB, description TEXT, metadata JSONB,
+  provider_payout_id TEXT, provider_reference TEXT, provider_status TEXT, route_decision JSONB NOT NULL,
+  balance_debited BOOLEAN NOT NULL DEFAULT false, provider_submitted BOOLEAN NOT NULL DEFAULT false,
+  resource_version BIGINT NOT NULL DEFAULT 1, attempt_count INTEGER NOT NULL DEFAULT 0,
+  next_attempt_at TIMESTAMPTZ NOT NULL DEFAULT now(), last_error TEXT,
+  creation_date TIMESTAMPTZ NOT NULL DEFAULT now(), confirmation_date TIMESTAMPTZ,
+  failure_date TIMESTAMPTZ, cancellation_date TIMESTAMPTZ, reversal_date TIMESTAMPTZ,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(), UNIQUE (merchant_id,idempotency_key)
+);
+CREATE TABLE IF NOT EXISTS dinapay_v2_payout_idempotency (
+  merchant_id TEXT NOT NULL, idempotency_key TEXT NOT NULL, request_hash TEXT NOT NULL,
+  payout_id UUID NOT NULL, status TEXT NOT NULL CHECK(status IN ('pending','complete')),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY(merchant_id,idempotency_key)
+);
+CREATE INDEX IF NOT EXISTS dinapay_v2_payouts_pending_idx ON dinapay_v2_payouts(next_attempt_at,creation_date)
+  WHERE status IN ('pending_debit','pending_provider','provider_unknown','processing','pending_compensation','pending_compensation_cancelled','pending_compensation_reversed');

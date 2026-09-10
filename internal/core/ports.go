@@ -12,6 +12,12 @@ type Connector interface {
 	GetRefund(context.Context, RouteDecision, Refund) (ProviderRefund, error)
 }
 
+type PayoutConnector interface {
+	CreatePayout(context.Context, RouteDecision, Payout, string) (ProviderPayout, error)
+	GetPayout(context.Context, RouteDecision, Payout) (ProviderPayout, error)
+	CancelPayout(context.Context, RouteDecision, Payout, string) (ProviderPayout, error)
+}
+
 // LegacyRefunds is a temporary anti-corruption port used while V1 payments
 // remain operational. The raw credential is forwarded only to the loopback V1
 // API after V2 authentication and is never persisted.
@@ -38,6 +44,26 @@ type Ledger interface {
 	CreditConfirmedPayment(context.Context, Payment, string) error
 	DebitConfirmedRefund(context.Context, string, string, string, string) error
 	CreditFailedRefund(context.Context, string, string, string, string) error
+}
+
+type PayoutLedger interface {
+	DebitPayout(context.Context, string, string, string, string) error
+	CreditFailedPayout(context.Context, string, string, string, string) error
+}
+
+type PayoutStore interface {
+	BeginPayout(context.Context, Principal, string, string, string) (Payout, bool, error)
+	CompletePayout(context.Context, Principal, string, string, CreatePayout, RouteDecision) (Payout, error)
+	ReleasePayout(context.Context, string, string) error
+	GetPayout(context.Context, Principal, string) (Payout, error)
+	ListPayouts(context.Context, Principal, PayoutListOptions) (PayoutPage, error)
+	ClaimPayouts(context.Context, int) ([]Payout, error)
+	TransitionPayout(context.Context, string, string, map[string]any) (Payout, error)
+}
+
+type PayoutEventStore interface {
+	ResolvePayoutProviderEvent(context.Context, ProviderEvent) (ProviderEvent, error)
+	ApplyPayoutProviderEvent(context.Context, ProviderEvent, string) (EventResult, error)
 }
 
 type RefundStore interface {

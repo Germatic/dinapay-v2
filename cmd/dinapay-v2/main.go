@@ -67,6 +67,18 @@ func main() {
 	if nativeRefunds != nil && ledger != nil {
 		go refunds.Run(context.Background())
 	}
+	nativePayouts, _ := store.(core.PayoutStore)
+	var payouts *app.Payouts
+	if nativePayouts != nil {
+		var payoutLedger core.PayoutLedger
+		if ledger != nil {
+			payoutLedger = ledger.(*dinacore.Client)
+		}
+		payouts = app.NewPayouts(nativePayouts, httpclient.NewRouter(env("ROUTER_URL", "http://localhost:8091"), os.Getenv("SERVICE_TOKEN")), connectors, payoutLedger, auth)
+		if payoutLedger != nil {
+			go payouts.Run(context.Background())
+		}
+	}
 	events := app.NewProviderEvents(store)
 	if pool != nil && os.Getenv("DINACORE_BASE_URL") != "" && os.Getenv("DINACORE_API_KEY") != "" {
 		go dinacore.NewOutboxWorker(pool, ledger.(*dinacore.Client)).Run(context.Background())
@@ -75,7 +87,7 @@ func main() {
 		go webhooks.NewWorker(pool, envInt("WEBHOOK_DISPATCH_CONCURRENCY", 8)).Run(context.Background())
 		go collectMetrics(context.Background(), pool)
 	}
-	server := &http.Server{Addr: ":" + env("PORT", "8090"), Handler: httpapi.New(payments, refunds, events, auth, os.Getenv("SERVICE_TOKEN")), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 15 * time.Second, IdleTimeout: 60 * time.Second}
+	server := &http.Server{Addr: ":" + env("PORT", "8090"), Handler: httpapi.New(payments, refunds, payouts, events, auth, os.Getenv("SERVICE_TOKEN")), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 15 * time.Second, IdleTimeout: 60 * time.Second}
 	slog.Info("dinapay-v2 starting", "addr", server.Addr)
 	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		slog.Error("server stopped", "error", err)
@@ -86,13 +98,16 @@ func collectMetrics(ctx context.Context, pool *pgxpool.Pool) {
 	ticker := time.NewTicker(15 * time.Second)
 	defer ticker.Stop()
 	for {
-		var webhooks, webhookAge, ledger, ledgerAge float64
+		var webhooks, webhookAge, ledger, ledgerAge, unknownPayouts, unknownPayoutAge float64
 		err := pool.QueryRow(ctx, `SELECT count(*)::float8,COALESCE(EXTRACT(EPOCH FROM now()-min(created_at)),0)::float8 FROM webhook_deliveries WHERE status='pending'`).Scan(&webhooks, &webhookAge)
 		if err == nil {
 			err = pool.QueryRow(ctx, `SELECT count(*)::float8,COALESCE(EXTRACT(EPOCH FROM now()-min(created_at)),0)::float8 FROM dinacore_balance_outbox WHERE sent=false`).Scan(&ledger, &ledgerAge)
 		}
 		if err == nil {
-			observability.SetPersistent(webhooks, webhookAge, ledger, ledgerAge)
+			err = pool.QueryRow(ctx, `SELECT count(*)::float8,COALESCE(EXTRACT(EPOCH FROM now()-min(creation_date)),0)::float8 FROM dinapay_v2_payouts WHERE status='provider_unknown'`).Scan(&unknownPayouts, &unknownPayoutAge)
+		}
+		if err == nil {
+			observability.SetPersistent(webhooks, webhookAge, ledger, ledgerAge, unknownPayouts, unknownPayoutAge)
 		}
 		select {
 		case <-ctx.Done():

@@ -16,3 +16,13 @@ func TestHTTPMetricsUseNormalizedRouteAndStatusClass(t *testing.T) {
 		t.Fatalf("unexpected metrics: %s", body)
 	}
 }
+
+func TestPersistentMetricsExposeUnknownPayouts(t *testing.T) {
+	SetPersistent(0, 0, 0, 0, 2, 90)
+	recorder := httptest.NewRecorder()
+	Handler().ServeHTTP(recorder, httptest.NewRequest("GET", "/metrics", nil))
+	body := recorder.Body.String()
+	if !strings.Contains(body, "dinapay_payout_provider_unknown 2") || !strings.Contains(body, "dinapay_payout_provider_unknown_oldest_seconds 90") {
+		t.Fatalf("metrics=%s", body)
+	}
+}
