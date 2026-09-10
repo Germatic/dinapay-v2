@@ -30,7 +30,7 @@ func New(payments *app.Payments, refunds *app.Refunds, events *app.ProviderEvent
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) { writeJSON(w, 200, map[string]string{"status": "up"}) })
 	mux.HandleFunc("GET /ready", func(w http.ResponseWriter, _ *http.Request) { writeJSON(w, 200, map[string]string{"status": "ready"}) })
-	mux.Handle("GET /metrics", observability.Handler())
+	mux.Handle("GET /metrics", internalOnly(observability.Handler()))
 	mux.HandleFunc("POST /v2/payments", s.create)
 	mux.HandleFunc("GET /v2/payments", s.list)
 	mux.HandleFunc("GET /v2/payments/{transactionId}", s.get)
@@ -39,6 +39,16 @@ func New(payments *app.Payments, refunds *app.Refunds, events *app.ProviderEvent
 	mux.HandleFunc("GET /v2/refunds/{refundId}", s.getRefund)
 	mux.HandleFunc("POST /internal/v1/provider-events", s.providerEvent)
 	return withRequestID(mux)
+}
+
+func internalOnly(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("X-Forwarded-For") != "" || r.Header.Get("X-Real-IP") != "" {
+			http.NotFound(w, r)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 func withRequestID(next http.Handler) http.Handler {
