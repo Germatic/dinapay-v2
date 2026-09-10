@@ -14,6 +14,7 @@ import (
 
 	"github.com/Germatic/dinapay-v2/internal/app"
 	"github.com/Germatic/dinapay-v2/internal/core"
+	"github.com/Germatic/dinapay-v2/internal/observability"
 )
 
 type Server struct {
@@ -29,6 +30,7 @@ func New(payments *app.Payments, refunds *app.Refunds, events *app.ProviderEvent
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) { writeJSON(w, 200, map[string]string{"status": "up"}) })
 	mux.HandleFunc("GET /ready", func(w http.ResponseWriter, _ *http.Request) { writeJSON(w, 200, map[string]string{"status": "ready"}) })
+	mux.Handle("GET /metrics", observability.Handler())
 	mux.HandleFunc("POST /v2/payments", s.create)
 	mux.HandleFunc("GET /v2/payments", s.list)
 	mux.HandleFunc("GET /v2/payments/{transactionId}", s.get)
@@ -60,7 +62,8 @@ func withRequestID(next http.Handler) http.Handler {
 		capture := &statusWriter{ResponseWriter: w, status: http.StatusOK}
 		ctx := core.WithObservability(r.Context(), id, traceparent)
 		next.ServeHTTP(capture, r.WithContext(ctx))
-		if r.URL.Path != "/health" && r.URL.Path != "/ready" {
+		observability.ObserveHTTP(r.Method, r.Pattern, capture.status, time.Since(started))
+		if r.URL.Path != "/health" && r.URL.Path != "/ready" && r.URL.Path != "/metrics" {
 			slog.Info("http request", "method", r.Method, "path", r.URL.Path, "status", capture.status, "duration_ms", time.Since(started).Milliseconds(), "request_id", id, "traceparent", traceparent)
 		}
 	})

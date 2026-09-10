@@ -1,0 +1,18 @@
+package observability
+
+import (
+	"net/http/httptest"
+	"strings"
+	"testing"
+	"time"
+)
+
+func TestHTTPMetricsUseNormalizedRouteAndStatusClass(t *testing.T) {
+	ObserveHTTP("GET", "GET /v2/payments/{transactionId}", 200, 12*time.Millisecond)
+	recorder := httptest.NewRecorder()
+	Handler().ServeHTTP(recorder, httptest.NewRequest("GET", "/metrics", nil))
+	body := recorder.Body.String()
+	if !strings.Contains(body, `route="GET /v2/payments/{transactionId}"`) || !strings.Contains(body, `status_class="2xx"`) || strings.Contains(body, "transaction-123") {
+		t.Fatalf("unexpected metrics: %s", body)
+	}
+}
