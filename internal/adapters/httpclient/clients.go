@@ -127,7 +127,7 @@ func (c *Connectors) CreatePayout(ctx context.Context, route core.RouteDecision,
 	if !ok {
 		return out, fmt.Errorf("unknown connector %q", route.ConnectorID)
 	}
-	command := map[string]any{"operationId": "payout:" + p.PayoutID + ":create", "payoutId": p.PayoutID, "provider": route.Provider, "providerConnectionId": route.ProviderConnectionID, "source": p.Source, "destination": p.Destination}
+	command := map[string]any{"operationId": "payout:" + p.PayoutID + ":create", "payoutId": p.PayoutID, "accountId": p.AccountID, "merchantId": p.MerchantID, "provider": route.Provider, "providerConnectionId": route.ProviderConnectionID, "source": p.Source, "destination": p.Destination}
 	if route.Binding != nil {
 		command["binding"] = route.Binding
 	}
