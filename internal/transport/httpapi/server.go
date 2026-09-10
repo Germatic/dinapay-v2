@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -135,7 +136,7 @@ func validRequestID(id string) bool {
 }
 
 func (s *Server) createRefund(w http.ResponseWriter, r *http.Request) {
-	p, ok := s.principal(w, r)
+	p, ok := s.principal(w, r, "refunds:write")
 	if !ok {
 		return
 	}
@@ -159,7 +160,7 @@ func (s *Server) createRefund(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 201, result)
 }
 func (s *Server) listRefunds(w http.ResponseWriter, r *http.Request) {
-	p, ok := s.principal(w, r)
+	p, ok := s.principal(w, r, "refunds:read")
 	if !ok {
 		return
 	}
@@ -171,7 +172,7 @@ func (s *Server) listRefunds(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, result)
 }
 func (s *Server) getRefund(w http.ResponseWriter, r *http.Request) {
-	p, ok := s.principal(w, r)
+	p, ok := s.principal(w, r, "refunds:read")
 	if !ok {
 		return
 	}
@@ -187,7 +188,7 @@ func bearer(r *http.Request) string {
 }
 
 func (s *Server) list(w http.ResponseWriter, r *http.Request) {
-	p, ok := s.principal(w, r)
+	p, ok := s.principal(w, r, "payments:read")
 	if !ok {
 		return
 	}
@@ -246,7 +247,7 @@ type createRequest struct {
 }
 
 func (s *Server) create(w http.ResponseWriter, r *http.Request) {
-	p, ok := s.principal(w, r)
+	p, ok := s.principal(w, r, "payments:write")
 	if !ok {
 		return
 	}
@@ -274,7 +275,7 @@ func (s *Server) create(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) get(w http.ResponseWriter, r *http.Request) {
-	p, ok := s.principal(w, r)
+	p, ok := s.principal(w, r, "payments:read")
 	if !ok {
 		return
 	}
@@ -286,11 +287,15 @@ func (s *Server) get(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, result)
 }
 
-func (s *Server) principal(w http.ResponseWriter, r *http.Request) (core.Principal, bool) {
+func (s *Server) principal(w http.ResponseWriter, r *http.Request, requiredScope string) (core.Principal, bool) {
 	token := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
 	p, err := s.auth.Authenticate(r.Context(), token)
 	if err != nil {
 		writeError(w, 401, "unauthorized", "invalid credentials")
+		return p, false
+	}
+	if len(p.Scopes) > 0 && !slices.Contains(p.Scopes, requiredScope) {
+		writeError(w, 403, "forbidden", "API key does not grant the required scope")
 		return p, false
 	}
 	return p, true

@@ -46,7 +46,7 @@ func main() {
 			slog.Error("database migration", "error", err)
 			os.Exit(1)
 		}
-		store, auth = pgStore, postgres.NewAuth(pool)
+		store, auth = pgStore, postgres.NewAuth(pool, env("DINARIA_ENVIRONMENT", "sandbox"))
 	} else {
 		staticAuth := static.NewAuth(os.Getenv("API_KEYS"))
 		store, auth = memory.NewStore(), staticAuth

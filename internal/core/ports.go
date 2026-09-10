@@ -51,6 +51,7 @@ type RefundStore interface {
 type Principal struct {
 	AccountID  string
 	MerchantID string
+	Scopes     []string
 }
 
 type Authenticator interface {
