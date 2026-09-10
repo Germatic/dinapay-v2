@@ -56,7 +56,7 @@ func main() {
 	payments := app.NewPayments(
 		httpclient.NewRouter(env("ROUTER_URL", "http://localhost:8091"), os.Getenv("SERVICE_TOKEN")),
 		connectors, store, auth,
-		env("CHECKOUT_BASE_URL", "https://checkout.demo.dinaria.com"),
+		os.Getenv("CHECKOUT_BASE_URL"),
 	)
 	var ledger core.Ledger
 	if os.Getenv("DINACORE_BASE_URL") != "" && os.Getenv("DINACORE_API_KEY") != "" {

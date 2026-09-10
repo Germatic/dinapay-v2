@@ -47,6 +47,32 @@ func TestCreateIsIdempotent(t *testing.T) {
 	}
 }
 
+func TestCreateUsesProviderRedirectWhenCheckoutIsNotConfigured(t *testing.T) {
+	auth := static.NewAuth("test-key=account1:merchant1")
+	svc := NewPayments(routerStub{}, connectorStub{}, memory.NewStore(), auth, "")
+	in := core.CreatePayment{ExternalID: "order-provider-url", Amount: "0.25", Currency: "USDT", PaymentMethod: "crypto_payment", Customer: core.Customer{"country": "UY"}}
+	p, _, err := svc.Create(context.Background(), core.Principal{MerchantID: "merchant1"}, in, "provider-url-key")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.ActionURL != "https://example.com" {
+		t.Fatalf("actionUrl=%s", p.ActionURL)
+	}
+}
+
+func TestCreateUsesConfiguredDinariaCheckout(t *testing.T) {
+	auth := static.NewAuth("test-key=account1:merchant1")
+	svc := NewPayments(routerStub{}, connectorStub{}, memory.NewStore(), auth, "https://checkout.demo.dinaria.com/")
+	in := core.CreatePayment{ExternalID: "order-checkout-url", Amount: "0.25", Currency: "USDT", PaymentMethod: "crypto_payment", Customer: core.Customer{"country": "UY"}}
+	p, _, err := svc.Create(context.Background(), core.Principal{MerchantID: "merchant1"}, in, "checkout-url-key")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.ActionURL != "https://checkout.demo.dinaria.com/pay/"+p.TransactionID {
+		t.Fatalf("actionUrl=%s", p.ActionURL)
+	}
+}
+
 func TestLegacyReadUsesStandardCheckoutURL(t *testing.T) {
 	store := memory.NewStore()
 	// CompleteCreate is used only to seed the in-memory repository for this read test.

@@ -13,7 +13,8 @@ and this initial scaffold targets commit `450139e`.
 export API_KEYS='demo-key=account1:merchant1'
 export ROUTER_URL='http://localhost:8091'
 export CONNECTORS='connector-binancepay-v2=http://localhost:8092,connector-transferdirecto-v2=http://localhost:8093'
-export CHECKOUT_BASE_URL='https://checkout.demo.dinaria.com'
+# Optional: configure only after the Dinaria checkout is publicly reachable.
+export CHECKOUT_BASE_URL=''
 go run ./cmd/dinapay-v2
 ```
 
@@ -61,8 +62,10 @@ V2 is the complete read surface during the gradual migration:
   `transactionId`, so equal timestamps do not skip or repeat rows.
 - Legacy rows are mapped to the V2 public contract. Missing legacy data is
   omitted rather than fabricated.
-- `actionUrl` is normalized to the Dinaria checkout. Provider-native URLs stay
-  under `paymentData` as completion alternatives.
+- `actionUrl` is normalized to the Dinaria checkout only when
+  `CHECKOUT_BASE_URL` is configured. Otherwise it uses the provider's
+  recommended redirect URL. Provider-native alternatives remain under
+  `paymentData`.
 
 Payment origin remains internal. It will route future operations to the
 correct implementation and is not exposed in the public response.

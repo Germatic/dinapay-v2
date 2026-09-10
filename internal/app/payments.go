@@ -80,7 +80,7 @@ func (s *Payments) Create(ctx context.Context, principal core.Principal, in core
 	if !provider.ExpiresAt.IsZero() {
 		payment.ExpirationDate = provider.ExpiresAt
 	}
-	payment.ActionURL = s.checkoutBase + "/pay/" + txID
+	payment.ActionURL = s.actionURL(payment.PaymentData, txID)
 	eventID := deterministicUUID("payment.created:" + txID)
 	body, err := json.Marshal(map[string]any{
 		"eventId": eventID, "eventType": "payment.created", "apiVersion": "2",
@@ -119,9 +119,27 @@ func (s *Payments) List(ctx context.Context, principal core.Principal, options c
 }
 
 func (s *Payments) normalizeRead(p *core.Payment) {
-	if p != nil && p.Origin == "v1" {
+	if p != nil && p.Origin == "v1" && s.checkoutBase != "" {
 		p.ActionURL = s.checkoutBase + "/pay/" + p.TransactionID
 	}
+}
+
+func (s *Payments) actionURL(paymentData map[string]any, transactionID string) string {
+	if s.checkoutBase != "" {
+		return s.checkoutBase + "/pay/" + transactionID
+	}
+	redirect, _ := paymentData["redirect"].(map[string]any)
+	links, _ := redirect["links"].(map[string]any)
+	recommended, _ := redirect["recommendedAlternative"].(string)
+	if value, ok := links[recommended].(string); ok && value != "" {
+		return value
+	}
+	for _, name := range []string{"universal", "web", "app"} {
+		if value, ok := links[name].(string); ok && value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func publicPaymentData(completion map[string]any) (map[string]any, error) {
