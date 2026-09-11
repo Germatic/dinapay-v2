@@ -43,9 +43,9 @@ func (s *Store) DashboardSummary(ctx context.Context, accountID string, o core.D
 
 const dashboardSummarySQL = `WITH movements AS (
  SELECT account_id,merchant_id,external_id,'in'::text direction,status,currency,COALESCE(NULLIF(received_amount,''),amount)::numeric amount,creation_date,confirmation_date,
-        CASE WHEN COALESCE(pricing->>'feeAmount','') ~ '^-?[0-9]+(\.[0-9]+)?$' THEN (pricing->>'feeAmount')::numeric END,
-        CASE WHEN COALESCE(pricing->>'platformFeeAmount','') ~ '^-?[0-9]+(\.[0-9]+)?$' THEN (pricing->>'platformFeeAmount')::numeric END,
-        COALESCE(pricing->>'feeAmount','') ~ '^-?[0-9]+(\.[0-9]+)?$' AND COALESCE(pricing->>'platformFeeAmount','') ~ '^-?[0-9]+(\.[0-9]+)?$'
+        CASE WHEN COALESCE(pricing->>'feeAmount','') ~ '^-?[0-9]+(\.[0-9]+)?$' THEN (pricing->>'feeAmount')::numeric END dinaria_fee,
+        CASE WHEN COALESCE(pricing->>'platformFeeAmount','') ~ '^-?[0-9]+(\.[0-9]+)?$' THEN (pricing->>'platformFeeAmount')::numeric END platform_fee,
+        (COALESCE(pricing->>'feeAmount','') ~ '^-?[0-9]+(\.[0-9]+)?$' AND COALESCE(pricing->>'platformFeeAmount','') ~ '^-?[0-9]+(\.[0-9]+)?$') fees_known
  FROM dinapay_v2_payments
  UNION ALL
  SELECT COALESCE(NULLIF(p.account_id,''),m.account_id,''),p.merchant_id,COALESCE(p.external_id,''),'in',p.status,p.currency,
