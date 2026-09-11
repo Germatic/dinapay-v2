@@ -54,6 +54,27 @@ CREATE TABLE IF NOT EXISTS dinapay_v2_provider_events (
 ALTER TABLE dinapay_v2_provider_events ALTER COLUMN transaction_id DROP NOT NULL;
 ALTER TABLE dinapay_v2_provider_events ADD COLUMN IF NOT EXISTS payout_id UUID;
 
+-- Recover the confirmation instant for orders confirmed before the column was
+-- introduced. received_at is when Dinaria durably accepted the provider event;
+-- do not use updated_at because later refunds would rewrite that timestamp.
+UPDATE dinapay_v2_payments p
+SET confirmation_date = confirmed.first_received_at
+FROM (
+  SELECT transaction_id, MIN(received_at) AS first_received_at
+  FROM dinapay_v2_provider_events
+  WHERE transaction_id IS NOT NULL AND payload->'data'->>'status' = 'confirmed'
+  GROUP BY transaction_id
+) confirmed
+WHERE p.transaction_id = confirmed.transaction_id
+  AND p.confirmation_date IS NULL;
+
+CREATE INDEX IF NOT EXISTS dinapay_v2_payments_account_confirmation_idx
+  ON dinapay_v2_payments (account_id, confirmation_date DESC, transaction_id DESC)
+  WHERE confirmation_date IS NOT NULL;
+CREATE INDEX IF NOT EXISTS dinapay_v2_payments_merchant_confirmation_idx
+  ON dinapay_v2_payments (merchant_id, confirmation_date DESC, transaction_id DESC)
+  WHERE confirmation_date IS NOT NULL;
+
 -- Additive compatibility marker. Existing registrations remain V1.
 ALTER TABLE webhooks ADD COLUMN IF NOT EXISTS api_version TEXT NOT NULL DEFAULT '1';
 CREATE INDEX IF NOT EXISTS webhooks_api_version_idx ON webhooks (api_version);
