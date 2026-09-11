@@ -262,6 +262,7 @@ type ProviderPayout struct {
 	Source               Money          `json:"source"`
 	DestinationAmount    string         `json:"destinationAmount,omitempty"`
 	DestinationCurrency  string         `json:"destinationCurrency,omitempty"`
+	Pricing              map[string]any `json:"pricing,omitempty"`
 	ObservedAt           time.Time      `json:"observedAt"`
 	ProviderData         map[string]any `json:"providerData,omitempty"`
 }

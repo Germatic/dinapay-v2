@@ -88,7 +88,7 @@ func (s *Payouts) process(ctx context.Context, p core.Payout) {
 		if s.ledger == nil {
 			return
 		}
-		if err := s.ledger.DebitPayout(ctx, p.AccountID, p.PayoutID, p.Source.Amount, p.Source.Currency); err != nil {
+		if err := s.ledger.DebitPayout(ctx, p.AccountID, p.PayoutID, payoutDebitAmount(p), p.Source.Currency); err != nil {
 			if errors.Is(err, core.ErrInsufficientBalance) {
 				f := transition("pending_debit")
 				f["lastError"] = "insufficient balance"
@@ -124,7 +124,7 @@ func (s *Payouts) process(ctx context.Context, p core.Payout) {
 			s.applyProvider(ctx, p, result)
 		}
 	case "pending_compensation", "pending_compensation_cancelled", "pending_compensation_reversed":
-		if s.ledger == nil || s.ledger.CreditFailedPayout(ctx, p.AccountID, p.PayoutID, p.Source.Amount, p.Source.Currency) != nil {
+		if s.ledger == nil || s.ledger.CreditFailedPayout(ctx, p.AccountID, p.PayoutID, payoutDebitAmount(p), p.Source.Currency) != nil {
 			return
 		}
 		next := "failed"
@@ -155,5 +155,13 @@ func (s *Payouts) applyProvider(ctx context.Context, p core.Payout, result core.
 	f["providerReference"] = result.ProviderReference
 	f["providerStatus"] = result.RawStatus
 	f["destinationAmount"] = result.DestinationAmount
+	f["providerPricing"] = result.Pricing
 	_, _ = s.store.TransitionPayout(ctx, p.PayoutID, next, f)
+}
+
+func payoutDebitAmount(p core.Payout) string {
+	if amount, ok := p.Pricing["totalDebitAmount"].(string); ok && amount != "" {
+		return amount
+	}
+	return p.Source.Amount
 }

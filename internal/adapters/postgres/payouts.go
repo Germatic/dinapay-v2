@@ -101,14 +101,23 @@ func (s *Store) CompletePayout(ctx context.Context, principal core.Principal, ke
 		return core.Payout{}, err
 	}
 	defer tx.Rollback(ctx)
-	inserted, err := tx.Exec(ctx, `INSERT INTO dinapay_v2_payouts(payout_id,account_id,merchant_id,external_id,idempotency_key,request_hash,status,source_amount,source_currency,destination,remitter,description,metadata,route_decision) SELECT $1,$2,$3,$4,$5,request_hash,'pending_debit',$6,$7,$8,$9,NULLIF($10,''),$11,$12 FROM dinapay_v2_payout_idempotency WHERE merchant_id=$3 AND idempotency_key=$5 AND payout_id=$1 AND status='pending'`, id, principal.AccountID, principal.MerchantID, in.ExternalID, key, in.Source.Amount, in.Source.Currency, destination, remitter, in.Description, metadata, routeJSON)
+	var feeAmount, totalDebitAmount string
+	err = tx.QueryRow(ctx, `SELECT
+		COALESCE((SELECT GREATEST(ROUND($4::numeric*f.payout_fee_pct,8),f.payout_fee_min)::text FROM account_fees f WHERE f.account_id=$1 AND f.currency=$2 AND f.provider_code IN ($3,'') AND f.effective_from<=now() ORDER BY (f.provider_code=$3) DESC,f.effective_from DESC LIMIT 1),'0'),
+		($4::numeric+COALESCE((SELECT GREATEST(ROUND($4::numeric*f.payout_fee_pct,8),f.payout_fee_min) FROM account_fees f WHERE f.account_id=$1 AND f.currency=$2 AND f.provider_code IN ($3,'') AND f.effective_from<=now() ORDER BY (f.provider_code=$3) DESC,f.effective_from DESC LIMIT 1),0))::text`, principal.AccountID, in.Source.Currency, route.Provider, in.Source.Amount).Scan(&feeAmount, &totalDebitAmount)
+	if err != nil {
+		return core.Payout{}, err
+	}
+	pricingMap := map[string]any{"feeAmount": feeAmount, "platformFeeAmount": "0", "totalDebitAmount": totalDebitAmount}
+	pricing, _ := json.Marshal(pricingMap)
+	inserted, err := tx.Exec(ctx, `INSERT INTO dinapay_v2_payouts(payout_id,account_id,merchant_id,external_id,idempotency_key,request_hash,status,source_amount,source_currency,destination,pricing,remitter,description,metadata,route_decision) SELECT $1,$2,$3,$4,$5,request_hash,'pending_debit',$6,$7,$8,$9,$10,NULLIF($11,''),$12,$13 FROM dinapay_v2_payout_idempotency WHERE merchant_id=$3 AND idempotency_key=$5 AND payout_id=$1 AND status='pending'`, id, principal.AccountID, principal.MerchantID, in.ExternalID, key, in.Source.Amount, in.Source.Currency, destination, pricing, remitter, in.Description, metadata, routeJSON)
 	if err != nil {
 		return core.Payout{}, err
 	}
 	if inserted.RowsAffected() != 1 {
 		return core.Payout{}, core.ErrConflict
 	}
-	p := core.Payout{PayoutID: id, AccountID: principal.AccountID, MerchantID: principal.MerchantID, ExternalID: in.ExternalID, Source: in.Source, Destination: in.Destination, Remitter: in.Remitter, Description: in.Description, Metadata: in.Metadata, Status: "processing", OperationalStatus: "pending_debit", Route: route, CreationDate: nowUTC(), ResourceVersion: 1}
+	p := core.Payout{PayoutID: id, AccountID: principal.AccountID, MerchantID: principal.MerchantID, ExternalID: in.ExternalID, Source: in.Source, Destination: in.Destination, Pricing: pricingMap, Remitter: in.Remitter, Description: in.Description, Metadata: in.Metadata, Status: "processing", OperationalStatus: "pending_debit", Route: route, CreationDate: nowUTC(), ResourceVersion: 1}
 	payload, _ := json.Marshal(map[string]any{"eventId": deterministicID("payout.created:" + id), "eventType": "payout.created", "apiVersion": "2", "merchantId": p.MerchantID, "creationDate": p.CreationDate, "resourceVersion": 1, "data": map[string]any{"object": p}})
 	_, err = tx.Exec(ctx, `INSERT INTO webhook_deliveries(webhook_id,event_id,event_type,payload) SELECT id,$1,'payout.created',$2 FROM webhooks WHERE api_version='2' AND webhook_secret<>'' AND (merchant_id=$3 OR (account_id=$4 AND merchant_id IS NULL)) ON CONFLICT DO NOTHING`, deterministicID("payout.created:"+id), payload, p.MerchantID, p.AccountID)
 	if err != nil {
@@ -230,12 +239,13 @@ func (s *Store) TransitionPayout(ctx context.Context, id, next string, f map[str
 	debited, _ := f["balanceDebited"].(bool)
 	submitted, _ := f["providerSubmitted"].(bool)
 	destinationAmount, _ := f["destinationAmount"].(string)
+	providerPricing, _ := json.Marshal(f["providerPricing"])
 	tx, err := s.db.Begin(ctx)
 	if err != nil {
 		return core.Payout{}, err
 	}
 	defer tx.Rollback(ctx)
-	tag, err := tx.Exec(ctx, `UPDATE dinapay_v2_payouts SET status=$3,provider_payout_id=COALESCE(NULLIF($4,''),provider_payout_id),provider_reference=COALESCE(NULLIF($5,''),provider_reference),provider_status=COALESCE(NULLIF($6,''),provider_status),last_error=NULLIF($7,''),balance_debited=balance_debited OR $8,provider_submitted=provider_submitted OR $9,destination=CASE WHEN $10='' THEN destination ELSE jsonb_set(destination,'{amount}',to_jsonb($10::text),true) END,resource_version=resource_version+1,next_attempt_at=now(),confirmation_date=CASE WHEN $3='confirmed' THEN now() ELSE confirmation_date END,failure_date=CASE WHEN $3='failed' THEN now() ELSE failure_date END,cancellation_date=CASE WHEN $3='cancelled' THEN now() ELSE cancellation_date END,reversal_date=CASE WHEN $3='reversed' THEN now() ELSE reversal_date END,updated_at=now() WHERE payout_id=$1 AND status=$2`, id, expected, next, providerID, reference, providerStatus, lastError, debited, submitted, destinationAmount)
+	tag, err := tx.Exec(ctx, `UPDATE dinapay_v2_payouts SET status=$3,provider_payout_id=COALESCE(NULLIF($4,''),provider_payout_id),provider_reference=COALESCE(NULLIF($5,''),provider_reference),provider_status=COALESCE(NULLIF($6,''),provider_status),last_error=NULLIF($7,''),balance_debited=balance_debited OR $8,provider_submitted=provider_submitted OR $9,destination=CASE WHEN $10='' THEN destination ELSE jsonb_set(destination,'{amount}',to_jsonb($10::text),true) END,pricing=COALESCE(pricing,'{}'::jsonb)||COALESCE(NULLIF($11::jsonb,'null'::jsonb),'{}'::jsonb),resource_version=resource_version+1,next_attempt_at=now(),confirmation_date=CASE WHEN $3='confirmed' THEN now() ELSE confirmation_date END,failure_date=CASE WHEN $3='failed' THEN now() ELSE failure_date END,cancellation_date=CASE WHEN $3='cancelled' THEN now() ELSE cancellation_date END,reversal_date=CASE WHEN $3='reversed' THEN now() ELSE reversal_date END,updated_at=now() WHERE payout_id=$1 AND status=$2`, id, expected, next, providerID, reference, providerStatus, lastError, debited, submitted, destinationAmount, providerPricing)
 	if err != nil {
 		return core.Payout{}, err
 	}
@@ -245,6 +255,19 @@ func (s *Store) TransitionPayout(ctx context.Context, id, next string, f map[str
 	p, err := scanPayout(tx.QueryRow(ctx, payoutSelect+`WHERE payout_id=$1`, id))
 	if err != nil {
 		return p, err
+	}
+	if next == "confirmed" {
+		feeAmount, _ := p.Pricing["feeAmount"].(string)
+		if feeAmount != "" && feeAmount != "0" {
+			if _, err = tx.Exec(ctx, `INSERT INTO fee_events_outbox(ref_type,ref_id,account_id,fee_amount,currency,provider_fee) VALUES('payout',$1,$2,$3::numeric,$4,0) ON CONFLICT(ref_type,ref_id) DO NOTHING`, p.PayoutID, p.AccountID, feeAmount, p.Source.Currency); err != nil {
+				return p, err
+			}
+		}
+	}
+	if next == "failed" || next == "cancelled" || next == "reversed" {
+		if _, err = tx.Exec(ctx, `DELETE FROM fee_events_outbox WHERE ref_type='payout' AND ref_id=$1 AND swept_at IS NULL AND sent=false`, p.PayoutID); err != nil {
+			return p, err
+		}
 	}
 	if publicPayoutStatus(expected) != p.Status {
 		eventID := deterministicID("payout.status_changed:" + id + ":" + next)

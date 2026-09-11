@@ -52,14 +52,18 @@ func (*payoutConnectorStub) CancelPayout(context.Context, core.RouteDecision, co
 type payoutLedgerStub struct {
 	debitErr, creditErr error
 	debits, credits     int
+	debitAmount         string
+	creditAmount        string
 }
 
-func (s *payoutLedgerStub) DebitPayout(context.Context, string, string, string, string) error {
+func (s *payoutLedgerStub) DebitPayout(_ context.Context, _, _, amount, _ string) error {
 	s.debits++
+	s.debitAmount = amount
 	return s.debitErr
 }
-func (s *payoutLedgerStub) CreditFailedPayout(context.Context, string, string, string, string) error {
+func (s *payoutLedgerStub) CreditFailedPayout(_ context.Context, _, _, amount, _ string) error {
 	s.credits++
+	s.creditAmount = amount
 	return s.creditErr
 }
 func testPayout(status string) core.Payout {
@@ -74,6 +78,35 @@ func TestPayoutDebitsBeforeProvider(t *testing.T) {
 	svc.process(context.Background(), testPayout("pending_debit"))
 	if ledger.debits != 1 || connector.creates != 0 || len(store.transitions) != 1 || store.transitions[0].next != "pending_provider" {
 		t.Fatalf("debits=%d creates=%d transitions=%#v", ledger.debits, connector.creates, store.transitions)
+	}
+}
+
+func TestPayoutDebitsAndCompensatesTotalIncludingFee(t *testing.T) {
+	store := &payoutStoreStub{}
+	ledger := &payoutLedgerStub{}
+	connector := &payoutConnectorStub{}
+	svc := NewPayouts(store, nil, connector, ledger, nil)
+	p := testPayout("pending_debit")
+	p.Pricing = map[string]any{"feeAmount": "0.25", "platformFeeAmount": "0", "totalDebitAmount": "10.25"}
+	svc.process(context.Background(), p)
+	if ledger.debitAmount != "10.25" {
+		t.Fatalf("debit amount=%q", ledger.debitAmount)
+	}
+	p.OperationalStatus = "pending_compensation"
+	svc.process(context.Background(), p)
+	if ledger.creditAmount != "10.25" {
+		t.Fatalf("credit amount=%q", ledger.creditAmount)
+	}
+}
+
+func TestPayoutPreservesProviderPricingForTransition(t *testing.T) {
+	store := &payoutStoreStub{}
+	result := core.ProviderPayout{ProviderPayoutID: "provider-1", Status: "confirmed", Pricing: map[string]any{"fixedFee": "0.60", "amountToConvert": "9.40"}}
+	svc := NewPayouts(store, nil, &payoutConnectorStub{create: result}, &payoutLedgerStub{}, nil)
+	svc.process(context.Background(), testPayout("pending_provider"))
+	pricing, ok := store.transitions[0].fields["providerPricing"].(map[string]any)
+	if !ok || pricing["fixedFee"] != "0.60" {
+		t.Fatalf("provider pricing=%#v", store.transitions[0].fields["providerPricing"])
 	}
 }
 func TestPayoutInsufficientBalanceNeverCallsProvider(t *testing.T) {
