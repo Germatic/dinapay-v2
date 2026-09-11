@@ -63,13 +63,18 @@ func (s *Server) listDashboardPayouts(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	result, err := s.dashboardReader.ListDashboardPayouts(r.Context(), r.URL.Query().Get("accountId"), r.URL.Query().Get("merchantId"), core.PayoutListOptions{Limit: limit, Cursor: r.URL.Query().Get("cursor"), Status: r.URL.Query().Get("status"), ExternalID: r.URL.Query().Get("externalId")})
+	dates, ok := dashboardDates(w, r)
+	if !ok {
+		return
+	}
+	q := r.URL.Query()
+	result, err := s.dashboardReader.ListDashboardPayouts(r.Context(), q.Get("accountId"), q.Get("merchantId"), core.PayoutListOptions{Limit: limit, Cursor: q.Get("cursor"), Status: q.Get("status"), Currency: q.Get("currency"), ExternalID: q.Get("externalId"), CreatedAfter: dates[0], CreatedBefore: dates[1], ConfirmedAfter: dates[2], ConfirmedBefore: dates[3]})
 	if err != nil {
 		slog.Error("dashboard consolidated payout read failed", "error", err, "request_id", core.RequestID(r.Context()))
 		mapError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, result)
+	writeJSON(w, http.StatusOK, dashboardPayoutPage(result))
 }
 
 func (s *Server) validDashboardToken(r *http.Request) bool {
@@ -90,6 +95,23 @@ func dashboardLimit(w http.ResponseWriter, r *http.Request) (int, bool) {
 	return limit, true
 }
 
+func dashboardDates(w http.ResponseWriter, r *http.Request) ([4]*time.Time, bool) {
+	var result [4]*time.Time
+	for i, name := range []string{"createdAfter", "createdBefore", "confirmedAfter", "confirmedBefore"} {
+		raw := r.URL.Query().Get(name)
+		if raw == "" {
+			continue
+		}
+		value, err := time.Parse(time.RFC3339, raw)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "invalid_request", name+" must be an RFC3339 timestamp")
+			return result, false
+		}
+		result[i] = &value
+	}
+	return result, true
+}
+
 func (s *Server) listDashboardPayments(w http.ResponseWriter, r *http.Request) {
 	token := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
 	if s.dashboardReader == nil || s.dashboardToken == "" || len(token) != len(s.dashboardToken) || subtle.ConstantTimeCompare([]byte(token), []byte(s.dashboardToken)) != 1 {
@@ -105,12 +127,51 @@ func (s *Server) listDashboardPayments(w http.ResponseWriter, r *http.Request) {
 		}
 		limit = parsed
 	}
-	result, err := s.dashboardReader.ListDashboardPayments(r.Context(), r.URL.Query().Get("accountId"), r.URL.Query().Get("merchantId"), core.PaymentListOptions{Limit: limit, Cursor: r.URL.Query().Get("cursor")})
+	dates, ok := dashboardDates(w, r)
+	if !ok {
+		return
+	}
+	q := r.URL.Query()
+	result, err := s.dashboardReader.ListDashboardPayments(r.Context(), q.Get("accountId"), q.Get("merchantId"), core.PaymentListOptions{Limit: limit, Cursor: q.Get("cursor"), Status: q.Get("status"), Currency: q.Get("currency"), ExternalID: q.Get("externalId"), CreatedAfter: dates[0], CreatedBefore: dates[1]})
 	if err != nil {
 		mapError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, result)
+	writeJSON(w, http.StatusOK, dashboardPaymentPage(result))
+}
+
+func dashboardPaymentPage(page core.PaymentPage) map[string]any {
+	data := make([]map[string]any, 0, len(page.Data))
+	for _, payment := range page.Data {
+		item := map[string]any{}
+		encoded, _ := json.Marshal(payment)
+		_ = json.Unmarshal(encoded, &item)
+		item["accountId"] = payment.AccountID
+		item["merchantId"] = payment.MerchantID
+		data = append(data, item)
+	}
+	response := map[string]any{"data": data, "hasMore": page.HasMore}
+	if page.NextCursor != "" {
+		response["nextCursor"] = page.NextCursor
+	}
+	return response
+}
+
+func dashboardPayoutPage(page core.PayoutPage) map[string]any {
+	data := make([]map[string]any, 0, len(page.Data))
+	for _, payout := range page.Data {
+		item := map[string]any{}
+		encoded, _ := json.Marshal(payout)
+		_ = json.Unmarshal(encoded, &item)
+		item["accountId"] = payout.AccountID
+		item["merchantId"] = payout.MerchantID
+		data = append(data, item)
+	}
+	response := map[string]any{"data": data, "hasMore": page.HasMore}
+	if page.NextCursor != "" {
+		response["nextCursor"] = page.NextCursor
+	}
+	return response
 }
 
 func (s *Server) createPayout(w http.ResponseWriter, r *http.Request) {

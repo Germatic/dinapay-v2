@@ -45,8 +45,10 @@ type Payment struct {
 }
 
 type PaymentListOptions struct {
-	Limit  int
-	Cursor string
+	Limit                       int
+	Cursor, Status, Currency    string
+	ExternalID                  string
+	CreatedAfter, CreatedBefore *time.Time
 }
 
 type PaymentPage struct {
@@ -142,8 +144,9 @@ type Payout struct {
 }
 
 type PayoutListOptions struct {
-	Limit                      int
-	Cursor, Status, ExternalID string
+	Limit                                                        int
+	Cursor, Status, Currency, ExternalID                         string
+	CreatedAfter, CreatedBefore, ConfirmedAfter, ConfirmedBefore *time.Time
 }
 type PayoutPage struct {
 	Data       []Payout `json:"data"`

@@ -49,7 +49,7 @@ func (s *Store) ListDashboardPayouts(ctx context.Context, accountID, merchantID 
 	if !cursor.CreatedAt.IsZero() {
 		cursorTime = &cursor.CreatedAt
 	}
-	rows, err := s.db.Query(ctx, dashboardPayoutSelect, merchantID, accountID, o.ExternalID, o.Status, cursorTime, cursor.ID, o.Limit+1)
+	rows, err := s.db.Query(ctx, dashboardPayoutSelect, merchantID, accountID, o.ExternalID, o.Status, o.Currency, o.CreatedAfter, o.CreatedBefore, o.ConfirmedAfter, o.ConfirmedBefore, cursorTime, cursor.ID, o.Limit+1)
 	if err != nil {
 		return core.PayoutPage{}, err
 	}
@@ -78,11 +78,14 @@ func (s *Store) ListDashboardPayouts(ctx context.Context, accountID, merchantID 
 const dashboardPayoutSelect = `WITH all_payouts AS (
  SELECT payout_id::text,account_id,merchant_id,external_id,status,source_amount,source_currency,destination,pricing,remitter,COALESCE(description,''),metadata,COALESCE(provider_payout_id,''),COALESCE(provider_reference,''),COALESCE(provider_status,''),route_decision,balance_debited,provider_submitted,resource_version,next_attempt_at,creation_date,confirmation_date,failure_date,cancellation_date,reversal_date,COALESCE(last_error,'') FROM dinapay_v2_payouts
  UNION ALL
-	SELECT p.id::text,COALESCE(p.account_id,''),COALESCE(p.merchant_id,''),COALESCE(p.external_id,''),p.status,p.amount::text,p.currency,
+	SELECT p.id::text,COALESCE(p.account_id,''),COALESCE(p.merchant_id,''),COALESCE(p.external_id,''),CASE WHEN p.status='completed' THEN 'confirmed' ELSE p.status END,p.amount::text,p.currency,
  COALESCE(p.destination,jsonb_build_object('country','AR','currency',COALESCE(NULLIF(p.destination_currency,''),p.currency),'amount',COALESCE(p.destination_amount::text,p.amount::text),'beneficiary',jsonb_build_object('name',COALESCE(p.destination_name,''),'documentNumber',COALESCE(p.destination_cuit,'')),'rail',jsonb_build_object('type',COALESCE(p.rail_code,'bank_transfer'),'identifier',COALESCE(p.destination_cbu,'')))),
  jsonb_strip_nulls(jsonb_build_object('feeAmount',p.fee_amount,'platformFeeAmount',p.platform_fee_amount,'exchangeRate',p.exchange_rate)), '{}'::jsonb, ''::text, '{}'::jsonb, '',COALESCE(p.provider_reference,p.coinag_trx_id,''),p.status,
  jsonb_build_object('provider',COALESCE(p.provider_code,''),'rail',COALESCE(p.rail_code,'')), p.status IN ('confirmed','completed'),p.submitted_at IS NOT NULL,1,p.created_at,p.created_at,p.completed_at,CASE WHEN p.status='failed' THEN p.updated_at END,NULL::timestamptz,p.reversed_at,COALESCE(p.error_message,'') FROM payouts p
-) SELECT * FROM all_payouts WHERE ($1='' OR merchant_id=$1) AND ($2='' OR account_id=$2) AND ($3='' OR external_id=$3) AND ($4='' OR status=$4) AND ($5::timestamptz IS NULL OR (creation_date,payout_id)<($5::timestamptz,$6)) ORDER BY creation_date DESC,payout_id DESC LIMIT $7`
+) SELECT * FROM all_payouts WHERE ($1='' OR merchant_id=$1) AND ($2='' OR account_id=$2) AND ($3='' OR external_id=$3) AND ($4='' OR status=$4) AND ($5='' OR source_currency=$5)
+ AND ($6::timestamptz IS NULL OR creation_date >= $6) AND ($7::timestamptz IS NULL OR creation_date < $7)
+ AND ($8::timestamptz IS NULL OR confirmation_date >= $8) AND ($9::timestamptz IS NULL OR confirmation_date < $9)
+ AND ($10::timestamptz IS NULL OR (creation_date,payout_id)<($10::timestamptz,$11)) ORDER BY creation_date DESC,payout_id DESC LIMIT $12`
 
 func (s *Store) ReleasePayout(ctx context.Context, merchantID, key string) error {
 	_, err := s.db.Exec(ctx, `DELETE FROM dinapay_v2_payout_idempotency WHERE merchant_id=$1 AND idempotency_key=$2 AND status='pending'`, merchantID, key)

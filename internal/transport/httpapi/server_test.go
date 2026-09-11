@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -11,9 +12,10 @@ import (
 )
 
 type dashboardReaderStub struct {
-	accountID  string
-	merchantID string
-	options    core.PaymentListOptions
+	accountID     string
+	merchantID    string
+	options       core.PaymentListOptions
+	payoutOptions core.PayoutListOptions
 }
 
 func (s *dashboardReaderStub) ListDashboardPayments(_ context.Context, accountID, merchantID string, options core.PaymentListOptions) (core.PaymentPage, error) {
@@ -23,6 +25,7 @@ func (s *dashboardReaderStub) ListDashboardPayments(_ context.Context, accountID
 
 func (s *dashboardReaderStub) ListDashboardPayouts(_ context.Context, accountID, merchantID string, options core.PayoutListOptions) (core.PayoutPage, error) {
 	s.accountID, s.merchantID = accountID, merchantID
+	s.payoutOptions = options
 	return core.PayoutPage{Data: []core.Payout{}}, nil
 }
 
@@ -36,7 +39,7 @@ func TestDashboardPaymentReadUsesDedicatedCredentialAndFilters(t *testing.T) {
 		t.Fatalf("without dashboard token status=%d", unauthorized.Code)
 	}
 
-	req := httptest.NewRequest(http.MethodGet, "/internal/v1/dashboard/payments?accountId=account-1&merchantId=merchant-1&limit=25&cursor=next", nil)
+	req := httptest.NewRequest(http.MethodGet, "/internal/v1/dashboard/payments?accountId=account-1&merchantId=merchant-1&limit=25&cursor=next&status=confirmed&currency=USD&externalId=order-1&createdAfter=2026-09-01T00:00:00Z&createdBefore=2026-10-01T00:00:00Z", nil)
 	req.Header.Set("Authorization", "Bearer dashboard-secret")
 	recorder := httptest.NewRecorder()
 	h.ServeHTTP(recorder, req)
@@ -45,6 +48,50 @@ func TestDashboardPaymentReadUsesDedicatedCredentialAndFilters(t *testing.T) {
 	}
 	if reader.accountID != "account-1" || reader.merchantID != "merchant-1" || reader.options.Limit != 25 || reader.options.Cursor != "next" {
 		t.Fatalf("filters not forwarded: %+v", reader)
+	}
+	if reader.options.Status != "confirmed" || reader.options.Currency != "USD" || reader.options.ExternalID != "order-1" || reader.options.CreatedAfter == nil || reader.options.CreatedBefore == nil {
+		t.Fatalf("extended filters not forwarded: %+v", reader.options)
+	}
+}
+
+func TestDashboardRowsExposeScopeOnlyOnInternalRead(t *testing.T) {
+	reader := &dashboardReaderStub{}
+	readerResult := core.PaymentPage{Data: []core.Payment{{TransactionID: "tx-1", AccountID: "account-1", MerchantID: "merchant-1", Status: "confirmed", Amount: "1.00", Currency: "USD"}}}
+	readerWithResult := &dashboardResultStub{dashboardReaderStub: *reader, paymentPage: readerResult}
+	h := NewWithDashboardReader(nil, nil, nil, nil, nil, "service-secret", readerWithResult, "dashboard-secret")
+	req := httptest.NewRequest(http.MethodGet, "/internal/v1/dashboard/payments", nil)
+	req.Header.Set("Authorization", "Bearer dashboard-secret")
+	recorder := httptest.NewRecorder()
+	h.ServeHTTP(recorder, req)
+	var body struct {
+		Data []map[string]any `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if len(body.Data) != 1 || body.Data[0]["accountId"] != "account-1" || body.Data[0]["merchantId"] != "merchant-1" {
+		t.Fatalf("scope missing from dashboard row: %s", recorder.Body.String())
+	}
+}
+
+type dashboardResultStub struct {
+	dashboardReaderStub
+	paymentPage core.PaymentPage
+}
+
+func (s *dashboardResultStub) ListDashboardPayments(_ context.Context, accountID, merchantID string, options core.PaymentListOptions) (core.PaymentPage, error) {
+	s.accountID, s.merchantID, s.options = accountID, merchantID, options
+	return s.paymentPage, nil
+}
+
+func TestDashboardRejectsInvalidDate(t *testing.T) {
+	h := NewWithDashboardReader(nil, nil, nil, nil, nil, "service-secret", &dashboardReaderStub{}, "dashboard-secret")
+	req := httptest.NewRequest(http.MethodGet, "/internal/v1/dashboard/payouts?confirmedAfter=yesterday", nil)
+	req.Header.Set("Authorization", "Bearer dashboard-secret")
+	recorder := httptest.NewRecorder()
+	h.ServeHTTP(recorder, req)
+	if recorder.Code != http.StatusBadRequest || !strings.Contains(recorder.Body.String(), "confirmedAfter") {
+		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
 	}
 }
 
