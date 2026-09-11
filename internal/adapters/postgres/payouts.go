@@ -153,7 +153,7 @@ func scanPayout(row payoutScanner) (core.Payout, error) {
 }
 func publicPayoutStatus(v string) string {
 	switch v {
-	case "confirmed":
+	case "confirmed", "completed":
 		return "confirmed"
 	case "pending_compensation_reversed":
 		return "confirmed"
