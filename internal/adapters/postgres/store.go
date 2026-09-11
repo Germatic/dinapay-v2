@@ -182,7 +182,7 @@ func (s *Store) ApplyProviderEvent(ctx context.Context, event core.ProviderEvent
 		p.Pricing = map[string]any{"feeAmount": feeAmount, "platformFeeAmount": "0"}
 		pricing, _ = json.Marshal(p.Pricing)
 	}
-	_, err = tx.Exec(ctx, `UPDATE dinapay_v2_payments SET status=$2,provider_reference=COALESCE(NULLIF($3,''),provider_reference),resource_version=$4,confirmation_date=COALESCE(confirmation_date,$5),received_amount=COALESCE(NULLIF($6,''),received_amount),pricing=CASE WHEN $7::jsonb='{}'::jsonb THEN pricing ELSE $7::jsonb END,updated_at=now() WHERE transaction_id=$1`, p.TransactionID, p.Status, event.Data.ProviderReference, p.Version, p.ConfirmationDate, p.ReceivedAmount, pricing)
+	_, err = tx.Exec(ctx, `UPDATE dinapay_v2_payments SET status=$2,provider_reference=COALESCE(NULLIF($3,''),provider_reference),resource_version=$4,confirmation_date=COALESCE(confirmation_date,$5),received_amount=COALESCE(NULLIF($6,''),received_amount),pricing=COALESCE(NULLIF($7::jsonb,'{}'::jsonb),pricing),updated_at=now() WHERE transaction_id=$1`, p.TransactionID, p.Status, event.Data.ProviderReference, p.Version, p.ConfirmationDate, p.ReceivedAmount, pricing)
 	if err != nil {
 		return core.EventResult{}, err
 	}
