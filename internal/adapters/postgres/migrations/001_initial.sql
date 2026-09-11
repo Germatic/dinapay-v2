@@ -40,6 +40,8 @@ CREATE INDEX IF NOT EXISTS dinapay_v2_payments_merchant_idx
 ALTER TABLE dinapay_v2_payments ADD COLUMN IF NOT EXISTS provider_payment_id TEXT;
 ALTER TABLE dinapay_v2_payments ADD COLUMN IF NOT EXISTS provider_reference TEXT;
 ALTER TABLE dinapay_v2_payments ADD COLUMN IF NOT EXISTS confirmation_date TIMESTAMPTZ;
+ALTER TABLE dinapay_v2_payments ADD COLUMN IF NOT EXISTS received_amount TEXT;
+ALTER TABLE dinapay_v2_payments ADD COLUMN IF NOT EXISTS pricing JSONB;
 
 CREATE TABLE IF NOT EXISTS dinapay_v2_provider_events (
   event_id       TEXT        PRIMARY KEY,
@@ -74,6 +76,17 @@ CREATE INDEX IF NOT EXISTS dinapay_v2_payments_account_confirmation_idx
 CREATE INDEX IF NOT EXISTS dinapay_v2_payments_merchant_confirmation_idx
   ON dinapay_v2_payments (merchant_id, confirmation_date DESC, transaction_id DESC)
   WHERE confirmation_date IS NOT NULL;
+
+-- Historical pricing uses the schedule effective at confirmation, never the
+-- current schedule. V2 has no sub-account payments yet, so platform fee is 0.
+UPDATE dinapay_v2_payments p
+SET received_amount = COALESCE(p.received_amount,p.amount),
+    pricing = COALESCE(p.pricing,jsonb_build_object(
+      'feeAmount',COALESCE((SELECT GREATEST(ROUND(p.amount::numeric*f.payin_fee_pct,8),f.payin_fee_min)::text
+                            FROM account_fees f WHERE f.account_id=p.account_id AND f.currency=p.currency
+                              AND f.effective_from<=p.confirmation_date ORDER BY f.effective_from DESC LIMIT 1),'0'),
+      'platformFeeAmount','0'))
+WHERE p.confirmation_date IS NOT NULL AND (p.received_amount IS NULL OR p.pricing IS NULL);
 
 -- Additive compatibility marker. Existing registrations remain V1.
 ALTER TABLE webhooks ADD COLUMN IF NOT EXISTS api_version TEXT NOT NULL DEFAULT '1';

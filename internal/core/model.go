@@ -28,6 +28,7 @@ type Payment struct {
 	ExternalID        string         `json:"externalId"`
 	Status            string         `json:"status"`
 	Amount            string         `json:"amount"`
+	ReceivedAmount    string         `json:"receivedAmount,omitempty"`
 	Currency          string         `json:"currency"`
 	PaymentMethod     string         `json:"paymentMethod"`
 	Description       string         `json:"description,omitempty"`
@@ -38,6 +39,7 @@ type Payment struct {
 	Customer          Customer       `json:"customer,omitempty"`
 	Metadata          map[string]any `json:"metadata,omitempty"`
 	PaymentData       map[string]any `json:"paymentData"`
+	Pricing           map[string]any `json:"pricing,omitempty"`
 	ProviderPaymentID string         `json:"-"`
 	ProviderReference string         `json:"-"`
 	Route             RouteDecision  `json:"-"`

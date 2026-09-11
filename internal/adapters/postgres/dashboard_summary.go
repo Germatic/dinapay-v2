@@ -42,8 +42,10 @@ func (s *Store) DashboardSummary(ctx context.Context, accountID string, o core.D
 }
 
 const dashboardSummarySQL = `WITH movements AS (
- SELECT account_id,merchant_id,external_id,'in'::text direction,status,currency,amount::numeric amount,creation_date,confirmation_date,
-        NULL::numeric dinaria_fee,NULL::numeric platform_fee,false fees_known
+ SELECT account_id,merchant_id,external_id,'in'::text direction,status,currency,COALESCE(NULLIF(received_amount,''),amount)::numeric amount,creation_date,confirmation_date,
+        CASE WHEN COALESCE(pricing->>'feeAmount','') ~ '^-?[0-9]+(\.[0-9]+)?$' THEN (pricing->>'feeAmount')::numeric END,
+        CASE WHEN COALESCE(pricing->>'platformFeeAmount','') ~ '^-?[0-9]+(\.[0-9]+)?$' THEN (pricing->>'platformFeeAmount')::numeric END,
+        COALESCE(pricing->>'feeAmount','') ~ '^-?[0-9]+(\.[0-9]+)?$' AND COALESCE(pricing->>'platformFeeAmount','') ~ '^-?[0-9]+(\.[0-9]+)?$'
  FROM dinapay_v2_payments
  UNION ALL
  SELECT COALESCE(NULLIF(p.account_id,''),m.account_id,''),p.merchant_id,COALESCE(p.external_id,''),'in',p.status,p.currency,
