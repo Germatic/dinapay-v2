@@ -44,6 +44,7 @@ type PaymentStore interface {
 type DashboardPaymentReader interface {
 	ListDashboardPayments(context.Context, string, string, PaymentListOptions) (PaymentPage, error)
 	ListDashboardPayouts(context.Context, string, string, PayoutListOptions) (PayoutPage, error)
+	DashboardSummary(context.Context, string, DashboardSummaryOptions) (DashboardSummary, error)
 }
 
 // Ledger isolates the current Dinacore API from orchestration. It will be used

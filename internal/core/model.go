@@ -155,6 +155,36 @@ type PayoutPage struct {
 	NextCursor string   `json:"nextCursor,omitempty"`
 }
 
+type DashboardSummaryOptions struct {
+	MerchantID, Direction, Status, Currency, ExternalID          string
+	CreatedAfter, CreatedBefore, ConfirmedAfter, ConfirmedBefore *time.Time
+}
+
+type DashboardCurrencySummary struct {
+	Currency            string  `json:"currency"`
+	PayinCount          int64   `json:"payinCount"`
+	PayinVolume         string  `json:"payinVolume"`
+	PayinSettledCount   int64   `json:"payinSettledCount"`
+	PayinSettledVolume  string  `json:"payinSettledVolume"`
+	PayoutCount         int64   `json:"payoutCount"`
+	PayoutVolume        string  `json:"payoutVolume"`
+	PayoutSettledCount  int64   `json:"payoutSettledCount"`
+	PayoutSettledVolume string  `json:"payoutSettledVolume"`
+	PlatformFeeEarned   *string `json:"platformFeeEarned"`
+	DinariaFeeCharged   *string `json:"dinariaFeeCharged"`
+	FeesComplete        bool    `json:"feesComplete"`
+}
+
+type DashboardSummary struct {
+	Period struct {
+		From string `json:"from,omitempty"`
+		To   string `json:"to,omitempty"`
+	} `json:"period"`
+	Currencies      []DashboardCurrencySummary `json:"currencies"`
+	SubAccountCount int64                      `json:"subAccountCount"`
+	AccountCount    int64                      `json:"accountCount,omitempty"`
+}
+
 type RouteRequest struct {
 	RequestID           string   `json:"requestId"`
 	TransactionID       string   `json:"transactionId"`

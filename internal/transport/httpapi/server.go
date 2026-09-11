@@ -51,7 +51,32 @@ func NewWithDashboardReader(payments *app.Payments, refunds *app.Refunds, payout
 	mux.HandleFunc("POST /internal/v1/provider-events", s.providerEvent)
 	mux.HandleFunc("GET /internal/v1/dashboard/payments", s.listDashboardPayments)
 	mux.HandleFunc("GET /internal/v1/dashboard/payouts", s.listDashboardPayouts)
+	mux.HandleFunc("GET /internal/v1/dashboard/summary", s.dashboardSummary)
 	return withRequestID(mux)
+}
+
+func (s *Server) dashboardSummary(w http.ResponseWriter, r *http.Request) {
+	if !s.validDashboardToken(r) {
+		writeError(w, http.StatusUnauthorized, "unauthorized", "invalid dashboard read credentials")
+		return
+	}
+	dates, ok := dashboardDates(w, r)
+	if !ok {
+		return
+	}
+	q := r.URL.Query()
+	direction := q.Get("direction")
+	if direction != "" && direction != "in" && direction != "out" {
+		writeError(w, http.StatusBadRequest, "invalid_request", "direction must be in or out")
+		return
+	}
+	result, err := s.dashboardReader.DashboardSummary(r.Context(), q.Get("accountId"), core.DashboardSummaryOptions{MerchantID: q.Get("merchantId"), Direction: direction, Status: q.Get("status"), Currency: strings.ToUpper(q.Get("currency")), ExternalID: q.Get("externalId"), CreatedAfter: dates[0], CreatedBefore: dates[1], ConfirmedAfter: dates[2], ConfirmedBefore: dates[3]})
+	if err != nil {
+		slog.Error("dashboard consolidated summary failed", "error", err, "request_id", core.RequestID(r.Context()))
+		mapError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
 }
 
 func (s *Server) listDashboardPayouts(w http.ResponseWriter, r *http.Request) {

@@ -12,10 +12,11 @@ import (
 )
 
 type dashboardReaderStub struct {
-	accountID     string
-	merchantID    string
-	options       core.PaymentListOptions
-	payoutOptions core.PayoutListOptions
+	accountID      string
+	merchantID     string
+	options        core.PaymentListOptions
+	payoutOptions  core.PayoutListOptions
+	summaryOptions core.DashboardSummaryOptions
 }
 
 func (s *dashboardReaderStub) ListDashboardPayments(_ context.Context, accountID, merchantID string, options core.PaymentListOptions) (core.PaymentPage, error) {
@@ -27,6 +28,26 @@ func (s *dashboardReaderStub) ListDashboardPayouts(_ context.Context, accountID,
 	s.accountID, s.merchantID = accountID, merchantID
 	s.payoutOptions = options
 	return core.PayoutPage{Data: []core.Payout{}}, nil
+}
+
+func (s *dashboardReaderStub) DashboardSummary(_ context.Context, accountID string, options core.DashboardSummaryOptions) (core.DashboardSummary, error) {
+	s.accountID, s.summaryOptions = accountID, options
+	return core.DashboardSummary{Currencies: []core.DashboardCurrencySummary{}}, nil
+}
+
+func TestDashboardSummaryForwardsScopeAndFilters(t *testing.T) {
+	reader := &dashboardReaderStub{}
+	h := NewWithDashboardReader(nil, nil, nil, nil, nil, "service-secret", reader, "dashboard-secret")
+	req := httptest.NewRequest(http.MethodGet, "/internal/v1/dashboard/summary?accountId=account-1&merchantId=merchant-1&direction=in&currency=usd&confirmedAfter=2026-09-01T00:00:00Z", nil)
+	req.Header.Set("Authorization", "Bearer dashboard-secret")
+	recorder := httptest.NewRecorder()
+	h.ServeHTTP(recorder, req)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	if reader.accountID != "account-1" || reader.summaryOptions.MerchantID != "merchant-1" || reader.summaryOptions.Direction != "in" || reader.summaryOptions.Currency != "USD" || reader.summaryOptions.ConfirmedAfter == nil {
+		t.Fatalf("summary filters not forwarded: %+v", reader)
+	}
 }
 
 func TestDashboardPaymentReadUsesDedicatedCredentialAndFilters(t *testing.T) {

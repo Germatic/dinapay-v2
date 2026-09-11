@@ -19,7 +19,7 @@ type pageCursor struct {
 
 func (s *Store) getLegacy(ctx context.Context, accountID, merchantID, transactionID string) (core.Payment, error) {
 	row := s.db.QueryRow(ctx, legacySelect+`
-		WHERE p.id=$1 AND (($2<>'' AND p.merchant_id=$2) OR ($2='' AND $3<>'' AND p.account_id=$3))`, transactionID, merchantID, accountID)
+		WHERE p.id=$1 AND (($2<>'' AND p.merchant_id=$2) OR ($2='' AND $3<>'' AND COALESCE(NULLIF(p.account_id,''),m.account_id)=$3))`, transactionID, merchantID, accountID)
 	p, _, err := scanLegacy(row)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return p, core.ErrNotFound
@@ -92,9 +92,9 @@ func (s *Store) listConsolidated(ctx context.Context, query, accountID, merchant
 	return page, nil
 }
 
-const legacySelect = `SELECT p.id::text,COALESCE(p.account_id,''),p.merchant_id,COALESCE(p.external_id,''),p.status,p.amount,p.currency,
+const legacySelect = `SELECT p.id::text,COALESCE(NULLIF(p.account_id,''),m.account_id,''),p.merchant_id,COALESCE(p.external_id,''),p.status,p.amount,p.currency,
 	CASE WHEN p.provider='binancepay' THEN 'crypto_payment' WHEN p.currency='BRL' AND COALESCE(p.qr_data,'')<>'' THEN 'qr' ELSE 'bank_transfer' END,
-	COALESCE(p.description,''),p.created_at,p.expiration,p.received_at,COALESCE(p.action_url,''),p.customer,p.metadata,p.provider,COALESCE(p.qr_data,''),COALESCE(p.coinag_reference,'') FROM payments p `
+	COALESCE(p.description,''),p.created_at,p.expiration,p.received_at,COALESCE(p.action_url,''),p.customer,p.metadata,p.provider,COALESCE(p.qr_data,''),COALESCE(p.coinag_reference,'') FROM payments p LEFT JOIN merchants m ON m.id=p.merchant_id `
 
 type rowScanner interface{ Scan(...any) error }
 
@@ -136,11 +136,11 @@ func legacyPaymentData(provider, actionURL, qr, reference string) map[string]any
 const consolidatedSelect = `WITH all_payments AS (
 	SELECT transaction_id::text,account_id,merchant_id,external_id,status,amount,currency,payment_method,COALESCE(description,''),creation_date,expiration_date,confirmation_date,action_url,customer,metadata,payment_data,'v2'::text origin FROM dinapay_v2_payments
 	UNION ALL
-	SELECT p.id::text,COALESCE(p.account_id,''),p.merchant_id,COALESCE(p.external_id,''),p.status,p.amount,p.currency,
+	SELECT p.id::text,COALESCE(NULLIF(p.account_id,''),m.account_id,''),p.merchant_id,COALESCE(p.external_id,''),p.status,p.amount,p.currency,
 	CASE WHEN p.provider='binancepay' THEN 'crypto_payment' WHEN p.currency='BRL' AND COALESCE(p.qr_data,'')<>'' THEN 'qr' ELSE 'bank_transfer' END,
 	COALESCE(p.description,''),p.created_at,p.expiration,p.received_at,COALESCE(p.action_url,''),p.customer,p.metadata,
 	CASE WHEN p.provider='binancepay' THEN jsonb_build_object('type','redirect','redirect',jsonb_strip_nulls(jsonb_build_object('recommendedAlternative','universal','links',jsonb_build_object('universal',p.action_url),'qr',CASE WHEN COALESCE(p.qr_data,'')<>'' THEN jsonb_build_object('content',p.qr_data) END))) ELSE jsonb_build_object('type','bank_transfer','bankTransfer',jsonb_strip_nulls(jsonb_build_object('transferReference',p.coinag_reference))) END,
-	'v1'::text FROM payments p
+	'v1'::text FROM payments p LEFT JOIN merchants m ON m.id=p.merchant_id
 ) SELECT * FROM all_payments WHERE (($1<>'' AND merchant_id=$1) OR ($1='' AND $2<>'' AND account_id=$2))
 	AND ($3='' OR status=$3) AND ($4='' OR currency=$4) AND ($5='' OR external_id=$5)
 	AND ($6::timestamptz IS NULL OR creation_date >= $6) AND ($7::timestamptz IS NULL OR creation_date < $7)
@@ -150,11 +150,11 @@ const consolidatedSelect = `WITH all_payments AS (
 const dashboardConsolidatedSelect = `WITH all_payments AS (
 	SELECT transaction_id::text,account_id,merchant_id,external_id,status,amount,currency,payment_method,COALESCE(description,''),creation_date,expiration_date,confirmation_date,action_url,customer,metadata,payment_data,'v2'::text origin FROM dinapay_v2_payments
 	UNION ALL
-	SELECT p.id::text,COALESCE(p.account_id,''),p.merchant_id,COALESCE(p.external_id,''),p.status,p.amount,p.currency,
+	SELECT p.id::text,COALESCE(NULLIF(p.account_id,''),m.account_id,''),p.merchant_id,COALESCE(p.external_id,''),p.status,p.amount,p.currency,
 	CASE WHEN p.provider='binancepay' THEN 'crypto_payment' WHEN p.currency='BRL' AND COALESCE(p.qr_data,'')<>'' THEN 'qr' ELSE 'bank_transfer' END,
 	COALESCE(p.description,''),p.created_at,p.expiration,p.received_at,COALESCE(p.action_url,''),p.customer,p.metadata,
 	CASE WHEN p.provider='binancepay' THEN jsonb_build_object('type','redirect','redirect',jsonb_strip_nulls(jsonb_build_object('recommendedAlternative','universal','links',jsonb_build_object('universal',p.action_url),'qr',CASE WHEN COALESCE(p.qr_data,'')<>'' THEN jsonb_build_object('content',p.qr_data) END))) ELSE jsonb_build_object('type','bank_transfer','bankTransfer',jsonb_strip_nulls(jsonb_build_object('transferReference',p.coinag_reference))) END,
-	'v1'::text FROM payments p
+	'v1'::text FROM payments p LEFT JOIN merchants m ON m.id=p.merchant_id
 ) SELECT * FROM all_payments WHERE ($1='' OR merchant_id=$1) AND ($2='' OR account_id=$2)
 	AND ($3='' OR status=$3) AND ($4='' OR currency=$4) AND ($5='' OR external_id=$5)
 	AND ($6::timestamptz IS NULL OR creation_date >= $6) AND ($7::timestamptz IS NULL OR creation_date < $7)
