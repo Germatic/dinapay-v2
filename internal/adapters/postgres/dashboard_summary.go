@@ -47,7 +47,7 @@ const dashboardSummarySQL = `WITH movements AS (
  FROM dinapay_v2_payments
  UNION ALL
  SELECT COALESCE(NULLIF(p.account_id,''),m.account_id,''),p.merchant_id,COALESCE(p.external_id,''),'in',p.status,p.currency,
-        CASE WHEN COALESCE(p.received_amount,'') ~ '^-?[0-9]+(\.[0-9]+)?$' THEN p.received_amount::numeric ELSE p.amount END,
+		CASE WHEN COALESCE(p.received_amount,'') ~ '^-?[0-9]+(\.[0-9]+)?$' THEN p.received_amount::numeric ELSE p.amount::numeric END,
         p.created_at,p.received_at,COALESCE(p.fee_amount,0),COALESCE(p.platform_fee_amount,0),true
  FROM payments p LEFT JOIN merchants m ON m.id=p.merchant_id
  UNION ALL
