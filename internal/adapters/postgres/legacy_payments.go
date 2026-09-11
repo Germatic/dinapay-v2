@@ -28,6 +28,14 @@ func (s *Store) getLegacy(ctx context.Context, accountID, merchantID, transactio
 }
 
 func (s *Store) List(ctx context.Context, accountID, merchantID string, options core.PaymentListOptions) (core.PaymentPage, error) {
+	return s.listConsolidated(ctx, consolidatedSelect, accountID, merchantID, options)
+}
+
+func (s *Store) ListDashboardPayments(ctx context.Context, accountID, merchantID string, options core.PaymentListOptions) (core.PaymentPage, error) {
+	return s.listConsolidated(ctx, dashboardConsolidatedSelect, accountID, merchantID, options)
+}
+
+func (s *Store) listConsolidated(ctx context.Context, query, accountID, merchantID string, options core.PaymentListOptions) (core.PaymentPage, error) {
 	limit := options.Limit
 	if limit <= 0 || limit > 100 {
 		limit = 50
@@ -43,7 +51,7 @@ func (s *Store) List(ctx context.Context, accountID, merchantID string, options 
 	if !cursor.CreatedAt.IsZero() {
 		cursorTime = &cursor.CreatedAt
 	}
-	rows, err := s.db.Query(ctx, consolidatedSelect, merchantID, accountID, cursorTime, cursor.ID, limit+1)
+	rows, err := s.db.Query(ctx, query, merchantID, accountID, cursorTime, cursor.ID, limit+1)
 	if err != nil {
 		return core.PaymentPage{}, err
 	}
@@ -132,4 +140,15 @@ const consolidatedSelect = `WITH all_payments AS (
 	CASE WHEN p.provider='binancepay' THEN jsonb_build_object('type','redirect','redirect',jsonb_strip_nulls(jsonb_build_object('recommendedAlternative','universal','links',jsonb_build_object('universal',p.action_url),'qr',CASE WHEN COALESCE(p.qr_data,'')<>'' THEN jsonb_build_object('content',p.qr_data) END))) ELSE jsonb_build_object('type','bank_transfer','bankTransfer',jsonb_strip_nulls(jsonb_build_object('transferReference',p.coinag_reference))) END,
 	'v1'::text FROM payments p
 ) SELECT * FROM all_payments WHERE (($1<>'' AND merchant_id=$1) OR ($1='' AND $2<>'' AND account_id=$2))
+	AND ($3::timestamptz IS NULL OR (creation_date,transaction_id)<($3::timestamptz,$4)) ORDER BY creation_date DESC,transaction_id DESC LIMIT $5`
+
+const dashboardConsolidatedSelect = `WITH all_payments AS (
+	SELECT transaction_id::text,account_id,merchant_id,external_id,status,amount,currency,payment_method,COALESCE(description,''),creation_date,expiration_date,action_url,customer,metadata,payment_data,'v2'::text origin FROM dinapay_v2_payments
+	UNION ALL
+	SELECT p.id::text,COALESCE(p.account_id,''),p.merchant_id,COALESCE(p.external_id,''),p.status,p.amount,p.currency,
+	CASE WHEN p.provider='binancepay' THEN 'crypto_payment' WHEN p.currency='BRL' AND COALESCE(p.qr_data,'')<>'' THEN 'qr' ELSE 'bank_transfer' END,
+	COALESCE(p.description,''),p.created_at,p.expiration,COALESCE(p.action_url,''),p.customer,p.metadata,
+	CASE WHEN p.provider='binancepay' THEN jsonb_build_object('type','redirect','redirect',jsonb_strip_nulls(jsonb_build_object('recommendedAlternative','universal','links',jsonb_build_object('universal',p.action_url),'qr',CASE WHEN COALESCE(p.qr_data,'')<>'' THEN jsonb_build_object('content',p.qr_data) END))) ELSE jsonb_build_object('type','bank_transfer','bankTransfer',jsonb_strip_nulls(jsonb_build_object('transferReference',p.coinag_reference))) END,
+	'v1'::text FROM payments p
+) SELECT * FROM all_payments WHERE ($1='' OR merchant_id=$1) AND ($2='' OR account_id=$2)
 	AND ($3::timestamptz IS NULL OR (creation_date,transaction_id)<($3::timestamptz,$4)) ORDER BY creation_date DESC,transaction_id DESC LIMIT $5`

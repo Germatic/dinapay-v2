@@ -31,6 +31,7 @@ func main() {
 		}
 	}
 	var store core.PaymentStore
+	var dashboardReader core.DashboardPaymentReader
 	var auth core.Authenticator
 	var pool *pgxpool.Pool
 	if dbURL := os.Getenv("DB_URL"); dbURL != "" {
@@ -47,6 +48,7 @@ func main() {
 			os.Exit(1)
 		}
 		store, auth = pgStore, postgres.NewAuth(pool, env("DINARIA_ENVIRONMENT", "sandbox"))
+		dashboardReader = pgStore
 	} else {
 		staticAuth := static.NewAuth(os.Getenv("API_KEYS"))
 		store, auth = memory.NewStore(), staticAuth
@@ -87,7 +89,7 @@ func main() {
 		go webhooks.NewWorker(pool, envInt("WEBHOOK_DISPATCH_CONCURRENCY", 8)).Run(context.Background())
 		go collectMetrics(context.Background(), pool)
 	}
-	server := &http.Server{Addr: ":" + env("PORT", "8090"), Handler: httpapi.New(payments, refunds, payouts, events, auth, os.Getenv("SERVICE_TOKEN")), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 15 * time.Second, IdleTimeout: 60 * time.Second}
+	server := &http.Server{Addr: ":" + env("PORT", "8090"), Handler: httpapi.NewWithDashboardReader(payments, refunds, payouts, events, auth, os.Getenv("SERVICE_TOKEN"), dashboardReader, os.Getenv("DASHBOARD_READ_TOKEN")), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 15 * time.Second, IdleTimeout: 60 * time.Second}
 	slog.Info("dinapay-v2 starting", "addr", server.Addr)
 	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		slog.Error("server stopped", "error", err)

@@ -70,6 +70,11 @@ V2 is the complete read surface during the gradual migration:
 Payment origin remains internal. It will route future operations to the
 correct implementation and is not exposed in the public response.
 
+Operational dashboards use `GET /internal/v1/dashboard/payments`, authenticated
+with the dedicated `DASHBOARD_READ_TOKEN`. It provides the same consolidated
+V1+V2 page with optional `accountId` and `merchantId` filters, without borrowing
+a customer API key or granting the dashboard direct database access.
+
 ## Refund migration
 
 The public V2 refund endpoints are available for payments whose internal

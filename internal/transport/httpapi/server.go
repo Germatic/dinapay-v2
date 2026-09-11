@@ -19,16 +19,22 @@ import (
 )
 
 type Server struct {
-	payments     *app.Payments
-	refunds      *app.Refunds
-	payouts      *app.Payouts
-	events       *app.ProviderEvents
-	auth         core.Authenticator
-	serviceToken string
+	payments        *app.Payments
+	refunds         *app.Refunds
+	payouts         *app.Payouts
+	events          *app.ProviderEvents
+	auth            core.Authenticator
+	serviceToken    string
+	dashboardReader core.DashboardPaymentReader
+	dashboardToken  string
 }
 
 func New(payments *app.Payments, refunds *app.Refunds, payouts *app.Payouts, events *app.ProviderEvents, auth core.Authenticator, serviceToken string) http.Handler {
-	s := &Server{payments: payments, refunds: refunds, payouts: payouts, events: events, auth: auth, serviceToken: serviceToken}
+	return NewWithDashboardReader(payments, refunds, payouts, events, auth, serviceToken, nil, "")
+}
+
+func NewWithDashboardReader(payments *app.Payments, refunds *app.Refunds, payouts *app.Payouts, events *app.ProviderEvents, auth core.Authenticator, serviceToken string, dashboardReader core.DashboardPaymentReader, dashboardToken string) http.Handler {
+	s := &Server{payments: payments, refunds: refunds, payouts: payouts, events: events, auth: auth, serviceToken: serviceToken, dashboardReader: dashboardReader, dashboardToken: dashboardToken}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) { writeJSON(w, 200, map[string]string{"status": "up"}) })
 	mux.HandleFunc("GET /ready", func(w http.ResponseWriter, _ *http.Request) { writeJSON(w, 200, map[string]string{"status": "ready"}) })
@@ -43,7 +49,31 @@ func New(payments *app.Payments, refunds *app.Refunds, payouts *app.Payouts, eve
 	mux.HandleFunc("GET /v2/payouts", s.listPayouts)
 	mux.HandleFunc("GET /v2/payouts/{payoutId}", s.getPayout)
 	mux.HandleFunc("POST /internal/v1/provider-events", s.providerEvent)
+	mux.HandleFunc("GET /internal/v1/dashboard/payments", s.listDashboardPayments)
 	return withRequestID(mux)
+}
+
+func (s *Server) listDashboardPayments(w http.ResponseWriter, r *http.Request) {
+	token := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+	if s.dashboardReader == nil || s.dashboardToken == "" || len(token) != len(s.dashboardToken) || subtle.ConstantTimeCompare([]byte(token), []byte(s.dashboardToken)) != 1 {
+		writeError(w, http.StatusUnauthorized, "unauthorized", "invalid dashboard read credentials")
+		return
+	}
+	limit := 50
+	if raw := r.URL.Query().Get("limit"); raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil || parsed < 1 || parsed > 100 {
+			writeError(w, http.StatusBadRequest, "invalid_request", "limit must be between 1 and 100")
+			return
+		}
+		limit = parsed
+	}
+	result, err := s.dashboardReader.ListDashboardPayments(r.Context(), r.URL.Query().Get("accountId"), r.URL.Query().Get("merchantId"), core.PaymentListOptions{Limit: limit, Cursor: r.URL.Query().Get("cursor")})
+	if err != nil {
+		mapError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
 }
 
 func (s *Server) createPayout(w http.ResponseWriter, r *http.Request) {

@@ -38,6 +38,13 @@ type PaymentStore interface {
 	ApplyProviderEvent(context.Context, ProviderEvent, string) (EventResult, error)
 }
 
+// DashboardPaymentReader is an internal, read-only view across every tenant.
+// It exists so operational dashboards do not query service-owned tables or
+// borrow a merchant credential.
+type DashboardPaymentReader interface {
+	ListDashboardPayments(context.Context, string, string, PaymentListOptions) (PaymentPage, error)
+}
+
 // Ledger isolates the current Dinacore API from orchestration. It will be used
 // by normalized provider-event processing, not during payment creation.
 type Ledger interface {
