@@ -21,6 +21,11 @@ func (s *dashboardReaderStub) ListDashboardPayments(_ context.Context, accountID
 	return core.PaymentPage{Data: []core.Payment{}, HasMore: false}, nil
 }
 
+func (s *dashboardReaderStub) ListDashboardPayouts(_ context.Context, accountID, merchantID string, options core.PayoutListOptions) (core.PayoutPage, error) {
+	s.accountID, s.merchantID = accountID, merchantID
+	return core.PayoutPage{Data: []core.Payout{}}, nil
+}
+
 func TestDashboardPaymentReadUsesDedicatedCredentialAndFilters(t *testing.T) {
 	reader := &dashboardReaderStub{}
 	h := NewWithDashboardReader(nil, nil, nil, nil, nil, "service-secret", reader, "dashboard-secret")

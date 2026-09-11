@@ -2,8 +2,11 @@ package postgres
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"time"
 
 	"github.com/Germatic/dinapay-v2/internal/core"
 	"github.com/jackc/pgx/v5"
@@ -30,6 +33,57 @@ func (s *Store) BeginPayout(ctx context.Context, principal core.Principal, key, 
 	p, err := s.GetPayout(ctx, principal, storedID)
 	return p, err == nil, err
 }
+
+func (s *Store) ListDashboardPayouts(ctx context.Context, accountID, merchantID string, o core.PayoutListOptions) (core.PayoutPage, error) {
+	if o.Limit < 1 || o.Limit > 100 {
+		o.Limit = 50
+	}
+	var cursor pageCursor
+	if o.Cursor != "" {
+		b, err := base64.RawURLEncoding.DecodeString(o.Cursor)
+		if err != nil || json.Unmarshal(b, &cursor) != nil || cursor.CreatedAt.IsZero() || cursor.ID == "" {
+			return core.PayoutPage{}, fmt.Errorf("%w: invalid cursor", core.ErrInvalid)
+		}
+	}
+	var cursorTime *time.Time
+	if !cursor.CreatedAt.IsZero() {
+		cursorTime = &cursor.CreatedAt
+	}
+	rows, err := s.db.Query(ctx, dashboardPayoutSelect, merchantID, accountID, o.ExternalID, o.Status, cursorTime, cursor.ID, o.Limit+1)
+	if err != nil {
+		return core.PayoutPage{}, err
+	}
+	defer rows.Close()
+	out := core.PayoutPage{Data: []core.Payout{}}
+	for rows.Next() {
+		value, scanErr := scanPayout(rows)
+		if scanErr != nil {
+			return out, scanErr
+		}
+		out.Data = append(out.Data, value)
+	}
+	if err = rows.Err(); err != nil {
+		return out, err
+	}
+	if len(out.Data) > o.Limit {
+		out.HasMore = true
+		out.Data = out.Data[:o.Limit]
+		last := out.Data[len(out.Data)-1]
+		b, _ := json.Marshal(pageCursor{CreatedAt: last.CreationDate, ID: last.PayoutID})
+		out.NextCursor = base64.RawURLEncoding.EncodeToString(b)
+	}
+	return out, nil
+}
+
+const dashboardPayoutSelect = `WITH all_payouts AS (
+ SELECT payout_id::text,account_id,merchant_id,external_id,status,source_amount,source_currency,destination,pricing,remitter,COALESCE(description,''),metadata,COALESCE(provider_payout_id,''),COALESCE(provider_reference,''),COALESCE(provider_status,''),route_decision,balance_debited,provider_submitted,resource_version,next_attempt_at,creation_date,confirmation_date,failure_date,cancellation_date,reversal_date,COALESCE(last_error,'') FROM dinapay_v2_payouts
+ UNION ALL
+ SELECT p.id::text,COALESCE(p.account_id,''),COALESCE(p.merchant_id,''),COALESCE(p.external_id,''),p.status,p.amount,p.currency,
+ COALESCE(p.destination,jsonb_build_object('country','AR','currency',COALESCE(NULLIF(p.destination_currency,''),p.currency),'amount',COALESCE(p.destination_amount::text,p.amount::text),'beneficiary',jsonb_build_object('name',COALESCE(p.destination_name,''),'documentNumber',COALESCE(p.destination_cuit,'')),'rail',jsonb_build_object('type',COALESCE(p.rail_code,'bank_transfer'),'identifier',COALESCE(p.destination_cbu,'')))),
+ jsonb_strip_nulls(jsonb_build_object('feeAmount',p.fee_amount,'platformFeeAmount',p.platform_fee_amount,'exchangeRate',p.exchange_rate)), '{}'::jsonb, ''::text, '{}'::jsonb, '',COALESCE(p.provider_reference,p.coinag_trx_id,''),p.status,
+ jsonb_build_object('provider',COALESCE(p.provider_code,''),'rail',COALESCE(p.rail_code,'')), p.status IN ('confirmed','completed'),p.submitted_at IS NOT NULL,1,p.created_at,p.created_at,p.completed_at,CASE WHEN p.status='failed' THEN p.updated_at END,NULL::timestamptz,p.reversed_at,COALESCE(p.error_message,'') FROM payouts p
+) SELECT * FROM all_payouts WHERE ($1='' OR merchant_id=$1) AND ($2='' OR account_id=$2) AND ($3='' OR external_id=$3) AND ($4='' OR status=$4) AND ($5::timestamptz IS NULL OR (creation_date,payout_id)<($5::timestamptz,$6)) ORDER BY creation_date DESC,payout_id DESC LIMIT $7`
+
 func (s *Store) ReleasePayout(ctx context.Context, merchantID, key string) error {
 	_, err := s.db.Exec(ctx, `DELETE FROM dinapay_v2_payout_idempotency WHERE merchant_id=$1 AND idempotency_key=$2 AND status='pending'`, merchantID, key)
 	return err

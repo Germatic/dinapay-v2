@@ -43,6 +43,7 @@ type PaymentStore interface {
 // borrow a merchant credential.
 type DashboardPaymentReader interface {
 	ListDashboardPayments(context.Context, string, string, PaymentListOptions) (PaymentPage, error)
+	ListDashboardPayouts(context.Context, string, string, PayoutListOptions) (PayoutPage, error)
 }
 
 // Ledger isolates the current Dinacore API from orchestration. It will be used

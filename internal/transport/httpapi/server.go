@@ -50,7 +50,43 @@ func NewWithDashboardReader(payments *app.Payments, refunds *app.Refunds, payout
 	mux.HandleFunc("GET /v2/payouts/{payoutId}", s.getPayout)
 	mux.HandleFunc("POST /internal/v1/provider-events", s.providerEvent)
 	mux.HandleFunc("GET /internal/v1/dashboard/payments", s.listDashboardPayments)
+	mux.HandleFunc("GET /internal/v1/dashboard/payouts", s.listDashboardPayouts)
 	return withRequestID(mux)
+}
+
+func (s *Server) listDashboardPayouts(w http.ResponseWriter, r *http.Request) {
+	if !s.validDashboardToken(r) {
+		writeError(w, http.StatusUnauthorized, "unauthorized", "invalid dashboard read credentials")
+		return
+	}
+	limit, ok := dashboardLimit(w, r)
+	if !ok {
+		return
+	}
+	result, err := s.dashboardReader.ListDashboardPayouts(r.Context(), r.URL.Query().Get("accountId"), r.URL.Query().Get("merchantId"), core.PayoutListOptions{Limit: limit, Cursor: r.URL.Query().Get("cursor"), Status: r.URL.Query().Get("status"), ExternalID: r.URL.Query().Get("externalId")})
+	if err != nil {
+		mapError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+func (s *Server) validDashboardToken(r *http.Request) bool {
+	token := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+	return s.dashboardReader != nil && s.dashboardToken != "" && len(token) == len(s.dashboardToken) && subtle.ConstantTimeCompare([]byte(token), []byte(s.dashboardToken)) == 1
+}
+
+func dashboardLimit(w http.ResponseWriter, r *http.Request) (int, bool) {
+	limit := 50
+	if raw := r.URL.Query().Get("limit"); raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil || parsed < 1 || parsed > 100 {
+			writeError(w, 400, "invalid_request", "limit must be between 1 and 100")
+			return 0, false
+		}
+		limit = parsed
+	}
+	return limit, true
 }
 
 func (s *Server) listDashboardPayments(w http.ResponseWriter, r *http.Request) {
