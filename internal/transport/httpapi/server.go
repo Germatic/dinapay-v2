@@ -65,6 +65,7 @@ func (s *Server) listDashboardPayouts(w http.ResponseWriter, r *http.Request) {
 	}
 	result, err := s.dashboardReader.ListDashboardPayouts(r.Context(), r.URL.Query().Get("accountId"), r.URL.Query().Get("merchantId"), core.PayoutListOptions{Limit: limit, Cursor: r.URL.Query().Get("cursor"), Status: r.URL.Query().Get("status"), ExternalID: r.URL.Query().Get("externalId")})
 	if err != nil {
+		slog.Error("dashboard consolidated payout read failed", "error", err, "request_id", core.RequestID(r.Context()))
 		mapError(w, err)
 		return
 	}
