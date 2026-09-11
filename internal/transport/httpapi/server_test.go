@@ -39,7 +39,7 @@ func TestDashboardPaymentReadUsesDedicatedCredentialAndFilters(t *testing.T) {
 		t.Fatalf("without dashboard token status=%d", unauthorized.Code)
 	}
 
-	req := httptest.NewRequest(http.MethodGet, "/internal/v1/dashboard/payments?accountId=account-1&merchantId=merchant-1&limit=25&cursor=next&status=confirmed&currency=USD&externalId=order-1&createdAfter=2026-09-01T00:00:00Z&createdBefore=2026-10-01T00:00:00Z", nil)
+	req := httptest.NewRequest(http.MethodGet, "/internal/v1/dashboard/payments?accountId=account-1&merchantId=merchant-1&limit=25&cursor=next&status=confirmed&currency=USD&externalId=order-1&createdAfter=2026-09-01T00:00:00Z&createdBefore=2026-10-01T00:00:00Z&confirmedAfter=2026-09-02T00:00:00Z&confirmedBefore=2026-10-02T00:00:00Z", nil)
 	req.Header.Set("Authorization", "Bearer dashboard-secret")
 	recorder := httptest.NewRecorder()
 	h.ServeHTTP(recorder, req)
@@ -49,7 +49,7 @@ func TestDashboardPaymentReadUsesDedicatedCredentialAndFilters(t *testing.T) {
 	if reader.accountID != "account-1" || reader.merchantID != "merchant-1" || reader.options.Limit != 25 || reader.options.Cursor != "next" {
 		t.Fatalf("filters not forwarded: %+v", reader)
 	}
-	if reader.options.Status != "confirmed" || reader.options.Currency != "USD" || reader.options.ExternalID != "order-1" || reader.options.CreatedAfter == nil || reader.options.CreatedBefore == nil {
+	if reader.options.Status != "confirmed" || reader.options.Currency != "USD" || reader.options.ExternalID != "order-1" || reader.options.CreatedAfter == nil || reader.options.CreatedBefore == nil || reader.options.ConfirmedAfter == nil || reader.options.ConfirmedBefore == nil {
 		t.Fatalf("extended filters not forwarded: %+v", reader.options)
 	}
 }

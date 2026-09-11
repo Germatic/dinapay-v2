@@ -33,6 +33,7 @@ type Payment struct {
 	Description       string         `json:"description,omitempty"`
 	CreationDate      time.Time      `json:"creationDate"`
 	ExpirationDate    time.Time      `json:"expirationDate"`
+	ConfirmationDate  *time.Time     `json:"confirmationDate,omitempty"`
 	ActionURL         string         `json:"actionUrl"`
 	Customer          Customer       `json:"customer,omitempty"`
 	Metadata          map[string]any `json:"metadata,omitempty"`
@@ -45,10 +46,10 @@ type Payment struct {
 }
 
 type PaymentListOptions struct {
-	Limit                       int
-	Cursor, Status, Currency    string
-	ExternalID                  string
-	CreatedAfter, CreatedBefore *time.Time
+	Limit                                                        int
+	Cursor, Status, Currency                                     string
+	ExternalID                                                   string
+	CreatedAfter, CreatedBefore, ConfirmedAfter, ConfirmedBefore *time.Time
 }
 
 type PaymentPage struct {

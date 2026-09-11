@@ -39,6 +39,7 @@ CREATE INDEX IF NOT EXISTS dinapay_v2_payments_merchant_idx
   ON dinapay_v2_payments (merchant_id, creation_date DESC);
 ALTER TABLE dinapay_v2_payments ADD COLUMN IF NOT EXISTS provider_payment_id TEXT;
 ALTER TABLE dinapay_v2_payments ADD COLUMN IF NOT EXISTS provider_reference TEXT;
+ALTER TABLE dinapay_v2_payments ADD COLUMN IF NOT EXISTS confirmation_date TIMESTAMPTZ;
 
 CREATE TABLE IF NOT EXISTS dinapay_v2_provider_events (
   event_id       TEXT        PRIMARY KEY,

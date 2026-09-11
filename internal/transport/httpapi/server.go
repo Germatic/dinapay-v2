@@ -132,7 +132,7 @@ func (s *Server) listDashboardPayments(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	q := r.URL.Query()
-	result, err := s.dashboardReader.ListDashboardPayments(r.Context(), q.Get("accountId"), q.Get("merchantId"), core.PaymentListOptions{Limit: limit, Cursor: q.Get("cursor"), Status: q.Get("status"), Currency: q.Get("currency"), ExternalID: q.Get("externalId"), CreatedAfter: dates[0], CreatedBefore: dates[1]})
+	result, err := s.dashboardReader.ListDashboardPayments(r.Context(), q.Get("accountId"), q.Get("merchantId"), core.PaymentListOptions{Limit: limit, Cursor: q.Get("cursor"), Status: q.Get("status"), Currency: q.Get("currency"), ExternalID: q.Get("externalId"), CreatedAfter: dates[0], CreatedBefore: dates[1], ConfirmedAfter: dates[2], ConfirmedBefore: dates[3]})
 	if err != nil {
 		mapError(w, err)
 		return

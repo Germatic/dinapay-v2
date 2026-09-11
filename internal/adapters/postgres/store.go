@@ -5,6 +5,7 @@ import (
 	_ "embed"
 	"encoding/json"
 	"errors"
+	"time"
 
 	"github.com/Germatic/dinapay-v2/internal/core"
 	"github.com/jackc/pgx/v5"
@@ -98,9 +99,9 @@ func (s *Store) Get(ctx context.Context, accountID, merchantID, transactionID st
 func (s *Store) getV2(ctx context.Context, accountID, merchantID, transactionID string) (core.Payment, error) {
 	var p core.Payment
 	var customer, metadata, paymentData, route []byte
-	err := s.db.QueryRow(ctx, `SELECT transaction_id::text,account_id,merchant_id,external_id,status,amount,currency,payment_method,COALESCE(description,''),creation_date,expiration_date,action_url,customer,metadata,payment_data,provider_payment_id,COALESCE(provider_reference,''),route_decision,resource_version
+	err := s.db.QueryRow(ctx, `SELECT transaction_id::text,account_id,merchant_id,external_id,status,amount,currency,payment_method,COALESCE(description,''),creation_date,expiration_date,confirmation_date,action_url,customer,metadata,payment_data,provider_payment_id,COALESCE(provider_reference,''),route_decision,resource_version
       FROM dinapay_v2_payments WHERE transaction_id=$1 AND (($2<>'' AND merchant_id=$2) OR ($2='' AND $3<>'' AND account_id=$3))`, transactionID, merchantID, accountID).Scan(
-		&p.TransactionID, &p.AccountID, &p.MerchantID, &p.ExternalID, &p.Status, &p.Amount, &p.Currency, &p.PaymentMethod, &p.Description, &p.CreationDate, &p.ExpirationDate, &p.ActionURL, &customer, &metadata, &paymentData, &p.ProviderPaymentID, &p.ProviderReference, &route, &p.Version)
+		&p.TransactionID, &p.AccountID, &p.MerchantID, &p.ExternalID, &p.Status, &p.Amount, &p.Currency, &p.PaymentMethod, &p.Description, &p.CreationDate, &p.ExpirationDate, &p.ConfirmationDate, &p.ActionURL, &customer, &metadata, &paymentData, &p.ProviderPaymentID, &p.ProviderReference, &route, &p.Version)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return p, core.ErrNotFound
 	}
@@ -131,7 +132,7 @@ func (s *Store) ApplyProviderEvent(ctx context.Context, event core.ProviderEvent
 	}
 	var p core.Payment
 	var customer, metadata, paymentData, route []byte
-	err = tx.QueryRow(ctx, `SELECT transaction_id::text,account_id,merchant_id,external_id,status,amount,currency,payment_method,COALESCE(description,''),creation_date,expiration_date,action_url,customer,metadata,payment_data,provider_payment_id,COALESCE(provider_reference,''),route_decision,resource_version FROM dinapay_v2_payments WHERE transaction_id=$1 FOR UPDATE`, event.TransactionID).Scan(&p.TransactionID, &p.AccountID, &p.MerchantID, &p.ExternalID, &p.Status, &p.Amount, &p.Currency, &p.PaymentMethod, &p.Description, &p.CreationDate, &p.ExpirationDate, &p.ActionURL, &customer, &metadata, &paymentData, &p.ProviderPaymentID, &p.ProviderReference, &route, &p.Version)
+	err = tx.QueryRow(ctx, `SELECT transaction_id::text,account_id,merchant_id,external_id,status,amount,currency,payment_method,COALESCE(description,''),creation_date,expiration_date,confirmation_date,action_url,customer,metadata,payment_data,provider_payment_id,COALESCE(provider_reference,''),route_decision,resource_version FROM dinapay_v2_payments WHERE transaction_id=$1 FOR UPDATE`, event.TransactionID).Scan(&p.TransactionID, &p.AccountID, &p.MerchantID, &p.ExternalID, &p.Status, &p.Amount, &p.Currency, &p.PaymentMethod, &p.Description, &p.CreationDate, &p.ExpirationDate, &p.ConfirmationDate, &p.ActionURL, &customer, &metadata, &paymentData, &p.ProviderPaymentID, &p.ProviderReference, &route, &p.Version)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return core.EventResult{}, core.ErrNotFound
 	}
@@ -158,7 +159,11 @@ func (s *Store) ApplyProviderEvent(ctx context.Context, event core.ProviderEvent
 	previous := p.Status
 	p.Status = next
 	p.Version++
-	_, err = tx.Exec(ctx, `UPDATE dinapay_v2_payments SET status=$2,provider_reference=COALESCE(NULLIF($3,''),provider_reference),resource_version=$4,updated_at=now() WHERE transaction_id=$1`, p.TransactionID, p.Status, event.Data.ProviderReference, p.Version)
+	if next == "confirmed" && p.ConfirmationDate == nil {
+		now := time.Now().UTC()
+		p.ConfirmationDate = &now
+	}
+	_, err = tx.Exec(ctx, `UPDATE dinapay_v2_payments SET status=$2,provider_reference=COALESCE(NULLIF($3,''),provider_reference),resource_version=$4,confirmation_date=COALESCE(confirmation_date,$5),updated_at=now() WHERE transaction_id=$1`, p.TransactionID, p.Status, event.Data.ProviderReference, p.Version, p.ConfirmationDate)
 	if err != nil {
 		return core.EventResult{}, err
 	}
