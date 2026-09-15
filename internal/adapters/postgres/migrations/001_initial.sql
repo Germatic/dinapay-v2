@@ -90,6 +90,7 @@ WHERE p.confirmation_date IS NOT NULL AND (p.received_amount IS NULL OR p.pricin
 
 -- Additive compatibility marker. Existing registrations remain V1.
 ALTER TABLE webhooks ADD COLUMN IF NOT EXISTS api_version TEXT NOT NULL DEFAULT '1';
+ALTER TABLE webhooks ADD COLUMN IF NOT EXISTS event_types TEXT[];
 CREATE INDEX IF NOT EXISTS webhooks_api_version_idx ON webhooks (api_version);
 
 CREATE TABLE IF NOT EXISTS dinapay_v2_refunds (

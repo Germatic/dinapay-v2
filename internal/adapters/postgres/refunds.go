@@ -61,7 +61,7 @@ func (s *Store) CreateRefund(ctx context.Context, principal core.Principal, paym
 	}
 	r := core.Refund{RefundID: id, TransactionID: paymentID, AccountID: p.AccountID, MerchantID: p.MerchantID, ExternalID: in.ExternalID, Status: "pending", OperationalStatus: "pending_debit", Amount: in.Amount, Currency: p.Currency, Reason: in.Reason, Metadata: in.Metadata, CreationDate: nowUTC(), ProviderPaymentID: p.ProviderPaymentID, Route: p.Route, ResourceVersion: 1}
 	payload, _ := json.Marshal(map[string]any{"eventId": deterministicID("refund.created:" + id), "eventType": "refund.created", "apiVersion": "2", "merchantId": p.MerchantID, "creationDate": r.CreationDate, "resourceVersion": 1, "data": map[string]any{"object": r}})
-	_, err = tx.Exec(ctx, `INSERT INTO webhook_deliveries(webhook_id,event_id,event_type,payload) SELECT id,$1,'refund.created',$2 FROM webhooks WHERE api_version='2' AND webhook_secret<>'' AND (merchant_id=$3 OR (account_id=$4 AND merchant_id IS NULL)) ON CONFLICT DO NOTHING`, deterministicID("refund.created:"+id), payload, p.MerchantID, p.AccountID)
+	_, err = tx.Exec(ctx, `INSERT INTO webhook_deliveries(webhook_id,event_id,event_type,payload) SELECT id,$1,'refund.created',$2 FROM webhooks WHERE api_version='2' AND webhook_secret<>'' AND (merchant_id=$3 OR (account_id=$4 AND merchant_id IS NULL)) AND (event_types IS NULL OR 'refund.created'=ANY(event_types)) ON CONFLICT DO NOTHING`, deterministicID("refund.created:"+id), payload, p.MerchantID, p.AccountID)
 	if err != nil {
 		return core.Refund{}, false, err
 	}
@@ -188,7 +188,7 @@ func (s *Store) TransitionRefund(ctx context.Context, id, next string, fields ma
 	if next == "succeeded" || next == "failed" {
 		eventID := deterministicID("refund.status_changed:" + id + ":" + next)
 		payload, _ := json.Marshal(map[string]any{"eventId": eventID, "eventType": "refund.status_changed", "apiVersion": "2", "merchantId": r.MerchantID, "creationDate": nowUTC(), "resourceVersion": r.ResourceVersion, "previousStatus": "pending", "data": map[string]any{"object": r}})
-		_, err = tx.Exec(ctx, `INSERT INTO webhook_deliveries(webhook_id,event_id,event_type,payload) SELECT id,$1,'refund.status_changed',$2 FROM webhooks WHERE api_version='2' AND webhook_secret<>'' AND (merchant_id=$3 OR (account_id=$4 AND merchant_id IS NULL)) ON CONFLICT DO NOTHING`, eventID, payload, r.MerchantID, r.AccountID)
+		_, err = tx.Exec(ctx, `INSERT INTO webhook_deliveries(webhook_id,event_id,event_type,payload) SELECT id,$1,'refund.status_changed',$2 FROM webhooks WHERE api_version='2' AND webhook_secret<>'' AND (merchant_id=$3 OR (account_id=$4 AND merchant_id IS NULL)) AND (event_types IS NULL OR 'refund.status_changed'=ANY(event_types)) ON CONFLICT DO NOTHING`, eventID, payload, r.MerchantID, r.AccountID)
 		if err != nil {
 			return r, err
 		}

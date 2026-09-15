@@ -89,7 +89,11 @@ func main() {
 		go webhooks.NewWorker(pool, envInt("WEBHOOK_DISPATCH_CONCURRENCY", 8)).Run(context.Background())
 		go collectMetrics(context.Background(), pool)
 	}
-	server := &http.Server{Addr: ":" + env("PORT", "8090"), Handler: httpapi.NewWithDashboardReader(payments, refunds, payouts, events, auth, os.Getenv("SERVICE_TOKEN"), dashboardReader, os.Getenv("DASHBOARD_READ_TOKEN")), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 15 * time.Second, IdleTimeout: 60 * time.Second}
+	var webhookStore core.WebhookSubscriptionStore
+	if pool != nil {
+		webhookStore = postgres.NewStore(pool)
+	}
+	server := &http.Server{Addr: ":" + env("PORT", "8090"), Handler: httpapi.NewWithDashboardReader(payments, refunds, payouts, events, auth, os.Getenv("SERVICE_TOKEN"), dashboardReader, os.Getenv("DASHBOARD_READ_TOKEN"), webhookStore), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 15 * time.Second, IdleTimeout: 60 * time.Second}
 	slog.Info("dinapay-v2 starting", "addr", server.Addr)
 	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		slog.Error("server stopped", "error", err)

@@ -119,7 +119,7 @@ func (s *Store) CompletePayout(ctx context.Context, principal core.Principal, ke
 	}
 	p := core.Payout{PayoutID: id, AccountID: principal.AccountID, MerchantID: principal.MerchantID, ExternalID: in.ExternalID, Source: in.Source, Destination: in.Destination, Pricing: pricingMap, Remitter: in.Remitter, Description: in.Description, Metadata: in.Metadata, Status: "processing", OperationalStatus: "pending_debit", Route: route, CreationDate: nowUTC(), ResourceVersion: 1}
 	payload, _ := json.Marshal(map[string]any{"eventId": deterministicID("payout.created:" + id), "eventType": "payout.created", "apiVersion": "2", "merchantId": p.MerchantID, "creationDate": p.CreationDate, "resourceVersion": 1, "data": map[string]any{"object": p}})
-	_, err = tx.Exec(ctx, `INSERT INTO webhook_deliveries(webhook_id,event_id,event_type,payload) SELECT id,$1,'payout.created',$2 FROM webhooks WHERE api_version='2' AND webhook_secret<>'' AND (merchant_id=$3 OR (account_id=$4 AND merchant_id IS NULL)) ON CONFLICT DO NOTHING`, deterministicID("payout.created:"+id), payload, p.MerchantID, p.AccountID)
+	_, err = tx.Exec(ctx, `INSERT INTO webhook_deliveries(webhook_id,event_id,event_type,payload) SELECT id,$1,'payout.created',$2 FROM webhooks WHERE api_version='2' AND webhook_secret<>'' AND (merchant_id=$3 OR (account_id=$4 AND merchant_id IS NULL)) AND (event_types IS NULL OR 'payout.created'=ANY(event_types)) ON CONFLICT DO NOTHING`, deterministicID("payout.created:"+id), payload, p.MerchantID, p.AccountID)
 	if err != nil {
 		return core.Payout{}, err
 	}
@@ -272,7 +272,7 @@ func (s *Store) TransitionPayout(ctx context.Context, id, next string, f map[str
 	if publicPayoutStatus(expected) != p.Status {
 		eventID := deterministicID("payout.status_changed:" + id + ":" + next)
 		payload, _ := json.Marshal(map[string]any{"eventId": eventID, "eventType": "payout.status_changed", "apiVersion": "2", "merchantId": p.MerchantID, "creationDate": nowUTC(), "resourceVersion": p.ResourceVersion, "previousStatus": publicPayoutStatus(expected), "data": map[string]any{"object": p}})
-		_, err = tx.Exec(ctx, `INSERT INTO webhook_deliveries(webhook_id,event_id,event_type,payload) SELECT id,$1,'payout.status_changed',$2 FROM webhooks WHERE api_version='2' AND webhook_secret<>'' AND (merchant_id=$3 OR (account_id=$4 AND merchant_id IS NULL)) ON CONFLICT DO NOTHING`, eventID, payload, p.MerchantID, p.AccountID)
+		_, err = tx.Exec(ctx, `INSERT INTO webhook_deliveries(webhook_id,event_id,event_type,payload) SELECT id,$1,'payout.status_changed',$2 FROM webhooks WHERE api_version='2' AND webhook_secret<>'' AND (merchant_id=$3 OR (account_id=$4 AND merchant_id IS NULL)) AND (event_types IS NULL OR 'payout.status_changed'=ANY(event_types)) ON CONFLICT DO NOTHING`, eventID, payload, p.MerchantID, p.AccountID)
 		if err != nil {
 			return p, err
 		}

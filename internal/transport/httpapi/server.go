@@ -27,14 +27,18 @@ type Server struct {
 	serviceToken    string
 	dashboardReader core.DashboardPaymentReader
 	dashboardToken  string
+	webhooks        core.WebhookSubscriptionStore
 }
 
 func New(payments *app.Payments, refunds *app.Refunds, payouts *app.Payouts, events *app.ProviderEvents, auth core.Authenticator, serviceToken string) http.Handler {
 	return NewWithDashboardReader(payments, refunds, payouts, events, auth, serviceToken, nil, "")
 }
 
-func NewWithDashboardReader(payments *app.Payments, refunds *app.Refunds, payouts *app.Payouts, events *app.ProviderEvents, auth core.Authenticator, serviceToken string, dashboardReader core.DashboardPaymentReader, dashboardToken string) http.Handler {
+func NewWithDashboardReader(payments *app.Payments, refunds *app.Refunds, payouts *app.Payouts, events *app.ProviderEvents, auth core.Authenticator, serviceToken string, dashboardReader core.DashboardPaymentReader, dashboardToken string, webhookStores ...core.WebhookSubscriptionStore) http.Handler {
 	s := &Server{payments: payments, refunds: refunds, payouts: payouts, events: events, auth: auth, serviceToken: serviceToken, dashboardReader: dashboardReader, dashboardToken: dashboardToken}
+	if len(webhookStores) > 0 {
+		s.webhooks = webhookStores[0]
+	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) { writeJSON(w, 200, map[string]string{"status": "up"}) })
 	mux.HandleFunc("GET /ready", func(w http.ResponseWriter, _ *http.Request) { writeJSON(w, 200, map[string]string{"status": "ready"}) })
@@ -48,6 +52,11 @@ func NewWithDashboardReader(payments *app.Payments, refunds *app.Refunds, payout
 	mux.HandleFunc("POST /v2/payouts", s.createPayout)
 	mux.HandleFunc("GET /v2/payouts", s.listPayouts)
 	mux.HandleFunc("GET /v2/payouts/{payoutId}", s.getPayout)
+	mux.HandleFunc("POST /v2/webhooks", s.createWebhook)
+	mux.HandleFunc("GET /v2/webhooks", s.listWebhooks)
+	mux.HandleFunc("PATCH /v2/webhooks/{webhookId}", s.updateWebhook)
+	mux.HandleFunc("DELETE /v2/webhooks/{webhookId}", s.deleteWebhook)
+	mux.HandleFunc("POST /v2/webhooks/{webhookId}/rotate-secret", s.rotateWebhookSecret)
 	mux.HandleFunc("POST /internal/v1/provider-events", s.providerEvent)
 	mux.HandleFunc("GET /internal/v1/dashboard/payments", s.listDashboardPayments)
 	mux.HandleFunc("GET /internal/v1/dashboard/payouts", s.listDashboardPayouts)

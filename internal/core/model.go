@@ -187,6 +187,17 @@ type DashboardSummary struct {
 	AccountCount    int64                      `json:"accountCount,omitempty"`
 }
 
+type WebhookSubscription struct {
+	WebhookID    string    `json:"webhookId"`
+	URL          string    `json:"url"`
+	APIVersion   string    `json:"apiVersion"`
+	Scope        string    `json:"scope"`
+	EventTypes   []string  `json:"eventTypes,omitempty"`
+	CreationDate time.Time `json:"creationDate"`
+	UpdatedDate  time.Time `json:"updatedDate"`
+	Secret       string    `json:"webhookSecret,omitempty"`
+}
+
 type RouteRequest struct {
 	RequestID           string   `json:"requestId"`
 	TransactionID       string   `json:"transactionId"`

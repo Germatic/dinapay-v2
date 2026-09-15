@@ -47,6 +47,14 @@ type DashboardPaymentReader interface {
 	DashboardSummary(context.Context, string, DashboardSummaryOptions) (DashboardSummary, error)
 }
 
+type WebhookSubscriptionStore interface {
+	CreateWebhook(context.Context, Principal, string, string, []string) (WebhookSubscription, error)
+	ListWebhooks(context.Context, Principal) ([]WebhookSubscription, error)
+	UpdateWebhook(context.Context, Principal, string, *string, *[]string) (WebhookSubscription, error)
+	DeleteWebhook(context.Context, Principal, string) error
+	RotateWebhookSecret(context.Context, Principal, string, string) (WebhookSubscription, error)
+}
+
 // Ledger isolates the current Dinacore API from orchestration. It will be used
 // by normalized provider-event processing, not during payment creation.
 type Ledger interface {

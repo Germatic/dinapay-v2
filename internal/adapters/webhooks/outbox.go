@@ -12,6 +12,7 @@ import (
 	"net"
 	"net/http"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -24,10 +25,10 @@ type Worker struct {
 	concurrency int
 }
 type delivery struct {
-	id, webhookID, url, secret, eventID string
-	payload                             []byte
-	attempts                            int
-	createdAt                           time.Time
+	id, webhookID, url, secret, previousSecret, eventID string
+	payload                                             []byte
+	attempts                                            int
+	createdAt                                           time.Time
 }
 
 func NewWorker(db *pgxpool.Pool, configuredConcurrency ...int) *Worker {
@@ -64,7 +65,7 @@ func (w *Worker) flush(ctx context.Context) {
 		ORDER BY wd.next_attempt_at LIMIT 50 FOR UPDATE OF wd SKIP LOCKED
 	) UPDATE webhook_deliveries wd SET next_attempt_at=now()+interval '1 minute'
 	FROM claimed,webhooks wh WHERE wd.id=claimed.id AND wh.id=wd.webhook_id
-	RETURNING wd.id,wd.webhook_id,wh.webhook_url,wh.webhook_secret,wd.event_id,wd.payload,wd.attempt_count,wd.created_at`)
+	RETURNING wd.id,wd.webhook_id,wh.webhook_url,wh.webhook_secret,COALESCE(CASE WHEN wh.previous_secret_expires_at>now() THEN wh.previous_secret END,''),wd.event_id,wd.payload,wd.attempt_count,wd.created_at`)
 	if err != nil {
 		slog.Error("v2 webhook outbox claim failed", "error", err)
 		return
@@ -72,7 +73,7 @@ func (w *Worker) flush(ctx context.Context) {
 	var batch []delivery
 	for rows.Next() {
 		var d delivery
-		if err = rows.Scan(&d.id, &d.webhookID, &d.url, &d.secret, &d.eventID, &d.payload, &d.attempts, &d.createdAt); err != nil {
+		if err = rows.Scan(&d.id, &d.webhookID, &d.url, &d.secret, &d.previousSecret, &d.eventID, &d.payload, &d.attempts, &d.createdAt); err != nil {
 			rows.Close()
 			return
 		}
@@ -136,7 +137,7 @@ func (w *Worker) deliver(ctx context.Context, d delivery) bool {
 	if err == nil {
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("X-Webhook-Timestamp", fmt.Sprint(timestamp))
-		req.Header.Set("X-Webhook-Signature", signature(d.secret, d.payload, timestamp))
+		req.Header.Set("X-Webhook-Signature", signatureHeader(d.secret, d.previousSecret, d.payload, timestamp))
 		var response *http.Response
 		response, err = w.client.Do(req)
 		if err == nil {
@@ -162,4 +163,13 @@ func signature(secret string, body []byte, timestamp int64) string {
 	mac := hmac.New(sha256.New, []byte(secret))
 	_, _ = mac.Write([]byte(fmt.Sprintf("%d.%s", timestamp, body)))
 	return fmt.Sprintf("t=%d,v1=%s", timestamp, hex.EncodeToString(mac.Sum(nil)))
+}
+
+func signatureHeader(current, previous string, body []byte, timestamp int64) string {
+	header := signature(current, body, timestamp)
+	if previous == "" || previous == current {
+		return header
+	}
+	previousSignature := signature(previous, body, timestamp)
+	return header + ",v1=" + strings.TrimPrefix(strings.SplitN(previousSignature, ",", 2)[1], "v1=")
 }

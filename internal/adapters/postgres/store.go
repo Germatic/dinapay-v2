@@ -68,6 +68,7 @@ func (s *Store) CompleteCreate(ctx context.Context, p core.Payment, event core.M
       SELECT id,$1,$2,$3 FROM webhooks
       WHERE api_version='2' AND webhook_secret IS NOT NULL AND webhook_secret<>''
         AND (merchant_id=$4 OR (account_id=$5 AND merchant_id IS NULL))
+        AND (event_types IS NULL OR $2=ANY(event_types))
       ON CONFLICT (webhook_id,event_id) DO NOTHING`, event.EventID, event.EventType, event.Payload, p.MerchantID, p.AccountID)
 	if err != nil {
 		return err
@@ -199,7 +200,7 @@ func (s *Store) ApplyProviderEvent(ctx context.Context, event core.ProviderEvent
 		}
 	}
 	webhookPayload, _ := json.Marshal(map[string]any{"eventId": merchantEventID, "eventType": "payment.status_changed", "apiVersion": "2", "merchantId": p.MerchantID, "creationDate": event.ObservedAt, "resourceVersion": p.Version, "previousStatus": previous, "data": map[string]any{"object": p}})
-	_, err = tx.Exec(ctx, `INSERT INTO webhook_deliveries(webhook_id,event_id,event_type,payload) SELECT id,$1,'payment.status_changed',$2 FROM webhooks WHERE api_version='2' AND webhook_secret IS NOT NULL AND webhook_secret<>'' AND (merchant_id=$3 OR (account_id=$4 AND merchant_id IS NULL)) ON CONFLICT(webhook_id,event_id) DO NOTHING`, merchantEventID, webhookPayload, p.MerchantID, p.AccountID)
+	_, err = tx.Exec(ctx, `INSERT INTO webhook_deliveries(webhook_id,event_id,event_type,payload) SELECT id,$1,'payment.status_changed',$2 FROM webhooks WHERE api_version='2' AND webhook_secret IS NOT NULL AND webhook_secret<>'' AND (merchant_id=$3 OR (account_id=$4 AND merchant_id IS NULL)) AND (event_types IS NULL OR 'payment.status_changed'=ANY(event_types)) ON CONFLICT(webhook_id,event_id) DO NOTHING`, merchantEventID, webhookPayload, p.MerchantID, p.AccountID)
 	if err != nil {
 		return core.EventResult{}, err
 	}
