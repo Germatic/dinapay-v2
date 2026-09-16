@@ -194,6 +194,20 @@ type DashboardSummary struct {
 	AccountCount    int64                      `json:"accountCount,omitempty"`
 }
 
+// OperationalFailure is an internal support view. ProviderFailure must never
+// be copied into merchant API responses or merchant webhook payloads.
+type OperationalFailure struct {
+	ResourceType    string         `json:"resourceType"`
+	ResourceID      string         `json:"resourceId"`
+	AccountID       string         `json:"accountId"`
+	MerchantID      string         `json:"merchantId"`
+	Status          string         `json:"status"`
+	Provider        string         `json:"provider"`
+	Failure         map[string]any `json:"failure,omitempty"`
+	ProviderFailure map[string]any `json:"providerFailure,omitempty"`
+	UpdatedAt       time.Time      `json:"updatedAt"`
+}
+
 type WebhookSubscription struct {
 	WebhookID    string    `json:"webhookId"`
 	URL          string    `json:"url"`

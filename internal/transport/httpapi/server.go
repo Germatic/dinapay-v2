@@ -26,6 +26,7 @@ type Server struct {
 	auth            core.Authenticator
 	serviceToken    string
 	dashboardReader core.DashboardPaymentReader
+	failureReader   core.DashboardFailureReader
 	dashboardToken  string
 	webhooks        core.WebhookSubscriptionStore
 }
@@ -36,6 +37,7 @@ func New(payments *app.Payments, refunds *app.Refunds, payouts *app.Payouts, eve
 
 func NewWithDashboardReader(payments *app.Payments, refunds *app.Refunds, payouts *app.Payouts, events *app.ProviderEvents, auth core.Authenticator, serviceToken string, dashboardReader core.DashboardPaymentReader, dashboardToken string, webhookStores ...core.WebhookSubscriptionStore) http.Handler {
 	s := &Server{payments: payments, refunds: refunds, payouts: payouts, events: events, auth: auth, serviceToken: serviceToken, dashboardReader: dashboardReader, dashboardToken: dashboardToken}
+	s.failureReader, _ = dashboardReader.(core.DashboardFailureReader)
 	if len(webhookStores) > 0 {
 		s.webhooks = webhookStores[0]
 	}
@@ -61,7 +63,56 @@ func NewWithDashboardReader(payments *app.Payments, refunds *app.Refunds, payout
 	mux.HandleFunc("GET /internal/v1/dashboard/payments", s.listDashboardPayments)
 	mux.HandleFunc("GET /internal/v1/dashboard/payouts", s.listDashboardPayouts)
 	mux.HandleFunc("GET /internal/v1/dashboard/summary", s.dashboardSummary)
+	mux.HandleFunc("GET /internal/v1/dashboard/payments/{transactionId}/failure", s.dashboardPaymentFailure)
+	mux.HandleFunc("GET /internal/v1/dashboard/payouts/{payoutId}/failure", s.dashboardPayoutFailure)
 	return withRequestID(mux)
+}
+
+func (s *Server) dashboardPaymentFailure(w http.ResponseWriter, r *http.Request) {
+	s.dashboardFailure(w, r, "payment", r.PathValue("transactionId"))
+}
+
+func (s *Server) dashboardPayoutFailure(w http.ResponseWriter, r *http.Request) {
+	s.dashboardFailure(w, r, "payout", r.PathValue("payoutId"))
+}
+
+func (s *Server) dashboardFailure(w http.ResponseWriter, r *http.Request, operation, id string) {
+	if !s.validDashboardToken(r) || s.failureReader == nil {
+		writeError(w, http.StatusUnauthorized, "unauthorized", "invalid dashboard read credentials")
+		return
+	}
+	if !validUUID(id) {
+		writeError(w, http.StatusBadRequest, "invalid_request", "resource id must be a UUID")
+		return
+	}
+	var result core.OperationalFailure
+	var err error
+	if operation == "payment" {
+		result, err = s.failureReader.GetDashboardPaymentFailure(r.Context(), id)
+	} else {
+		result, err = s.failureReader.GetDashboardPayoutFailure(r.Context(), id)
+	}
+	if err != nil {
+		mapError(w, err)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, http.StatusOK, result)
+}
+
+func validUUID(value string) bool {
+	if len(value) != 36 || value[8] != '-' || value[13] != '-' || value[18] != '-' || value[23] != '-' {
+		return false
+	}
+	for i, char := range value {
+		if i == 8 || i == 13 || i == 18 || i == 23 {
+			continue
+		}
+		if !((char >= '0' && char <= '9') || (char >= 'a' && char <= 'f') || (char >= 'A' && char <= 'F')) {
+			return false
+		}
+	}
+	return true
 }
 
 func (s *Server) dashboardSummary(w http.ResponseWriter, r *http.Request) {

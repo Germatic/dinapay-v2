@@ -100,6 +100,54 @@ type dashboardResultStub struct {
 	paymentPage core.PaymentPage
 }
 
+type dashboardFailureStub struct {
+	dashboardReaderStub
+	result core.OperationalFailure
+	err    error
+}
+
+func (s *dashboardFailureStub) GetDashboardPaymentFailure(_ context.Context, id string) (core.OperationalFailure, error) {
+	s.result.ResourceID = id
+	s.result.ResourceType = "payment"
+	return s.result, s.err
+}
+
+func (s *dashboardFailureStub) GetDashboardPayoutFailure(_ context.Context, id string) (core.OperationalFailure, error) {
+	s.result.ResourceID = id
+	s.result.ResourceType = "payout"
+	return s.result, s.err
+}
+
+func TestDashboardFailureRequiresDedicatedTokenAndExposesInternalDetail(t *testing.T) {
+	reader := &dashboardFailureStub{result: core.OperationalFailure{Status: "failed", Provider: "insular", Failure: map[string]any{"code": "unknown_error"}, ProviderFailure: map[string]any{"code": "627"}}}
+	h := NewWithDashboardReader(nil, nil, nil, nil, nil, "service-secret", reader, "dashboard-secret")
+	path := "/internal/v1/dashboard/payouts/af820a06-8806-4f62-9eb5-b975afcd26bc/failure"
+	unauthorized := httptest.NewRecorder()
+	h.ServeHTTP(unauthorized, httptest.NewRequest(http.MethodGet, path, nil))
+	if unauthorized.Code != http.StatusUnauthorized {
+		t.Fatalf("unauthorized status=%d", unauthorized.Code)
+	}
+	req := httptest.NewRequest(http.MethodGet, path, nil)
+	req.Header.Set("Authorization", "Bearer dashboard-secret")
+	recorder := httptest.NewRecorder()
+	h.ServeHTTP(recorder, req)
+	if recorder.Code != http.StatusOK || recorder.Header().Get("Cache-Control") != "no-store" || !strings.Contains(recorder.Body.String(), `"providerFailure":{"code":"627"}`) {
+		t.Fatalf("status=%d headers=%v body=%s", recorder.Code, recorder.Header(), recorder.Body.String())
+	}
+}
+
+func TestDashboardFailureRejectsInvalidResourceID(t *testing.T) {
+	reader := &dashboardFailureStub{}
+	h := NewWithDashboardReader(nil, nil, nil, nil, nil, "", reader, "dashboard-secret")
+	req := httptest.NewRequest(http.MethodGet, "/internal/v1/dashboard/payments/not-a-uuid/failure", nil)
+	req.Header.Set("Authorization", "Bearer dashboard-secret")
+	recorder := httptest.NewRecorder()
+	h.ServeHTTP(recorder, req)
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+}
+
 func (s *dashboardResultStub) ListDashboardPayments(_ context.Context, accountID, merchantID string, options core.PaymentListOptions) (core.PaymentPage, error) {
 	s.accountID, s.merchantID, s.options = accountID, merchantID, options
 	return s.paymentPage, nil

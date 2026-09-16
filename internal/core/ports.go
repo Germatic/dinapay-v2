@@ -47,6 +47,11 @@ type DashboardPaymentReader interface {
 	DashboardSummary(context.Context, string, DashboardSummaryOptions) (DashboardSummary, error)
 }
 
+type DashboardFailureReader interface {
+	GetDashboardPaymentFailure(context.Context, string) (OperationalFailure, error)
+	GetDashboardPayoutFailure(context.Context, string) (OperationalFailure, error)
+}
+
 type WebhookSubscriptionStore interface {
 	CreateWebhook(context.Context, Principal, string, string, []string) (WebhookSubscription, error)
 	ListWebhooks(context.Context, Principal) ([]WebhookSubscription, error)
