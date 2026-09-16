@@ -123,5 +123,9 @@ func (s *Store) ApplyProviderEvent(_ context.Context, event core.ProviderEvent, 
 		s.payments[p.TransactionID] = p
 	}
 	s.events[event.EventID] = core.MerchantEvent{EventID: event.EventID, EventType: event.EventType, ResourceID: event.TransactionID}
-	return core.EventResult{Changed: changed, Status: p.Status}, nil
+	failureCode := ""
+	if changed && event.Data.Failure != nil {
+		failureCode = event.Data.Failure.Code
+	}
+	return core.EventResult{Changed: changed, Status: p.Status, FailureCode: failureCode}, nil
 }

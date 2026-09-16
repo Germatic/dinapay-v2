@@ -338,10 +338,12 @@ func (s *Store) ApplyPayoutProviderEvent(ctx context.Context, event core.Provide
 		return core.EventResult{Status: p.Status}, nil
 	}
 	f := map[string]any{"expectedStatus": p.OperationalStatus, "providerSubmitted": true, "providerPayoutId": event.ProviderPayoutID, "providerReference": event.Data.ProviderReference, "providerStatus": event.Data.RawStatus}
+	failureCode := ""
 	if next == "pending_compensation" {
 		f["lastError"] = "provider rejected payout"
 		failure, providerFailure := normalizePayoutEventFailure(event.Data)
 		f["failure"], f["providerFailure"] = failure, providerFailure
+		failureCode = failure.Code
 	}
 	updated, err := s.TransitionPayout(ctx, p.PayoutID, next, f)
 	if err != nil {
@@ -350,7 +352,7 @@ func (s *Store) ApplyPayoutProviderEvent(ctx context.Context, event core.Provide
 	}
 	_, _ = s.db.Exec(ctx, `UPDATE dinapay_v2_provider_events SET changed_state=true WHERE event_id=$1`, event.EventID)
 	_ = merchantEventID
-	return core.EventResult{Changed: updated.Status != p.Status, Status: updated.Status}, nil
+	return core.EventResult{Changed: updated.Status != p.Status, Status: updated.Status, FailureCode: failureCode}, nil
 }
 
 func normalizePayoutEventFailure(data core.ProviderEventData) (contract.Failure, contract.ProviderFailure) {

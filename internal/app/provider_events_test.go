@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	contract "github.com/Germatic/dinapay-contracts/go/connectorcontract/failures"
 	"github.com/Germatic/dinapay-v2/internal/adapters/memory"
 	"github.com/Germatic/dinapay-v2/internal/adapters/static"
 	"github.com/Germatic/dinapay-v2/internal/core"
@@ -35,6 +36,27 @@ func TestProviderEventIsIdempotentAndCannotRegress(t *testing.T) {
 	result, err = events.Handle(context.Background(), late)
 	if err != nil || result.Changed || result.Status != "confirmed" {
 		t.Fatalf("late event: %#v %v", result, err)
+	}
+}
+
+func TestProviderFailureResultExposesInternalMetricCode(t *testing.T) {
+	store := memory.NewStore()
+	auth := static.NewAuth("test-key=account1:merchant1")
+	payments := NewPayments(routerStub{}, connectorStub{}, store, auth, "https://checkout.demo.dinaria.com")
+	p, _, err := payments.Create(context.Background(), core.Principal{AccountID: "account1", MerchantID: "merchant1"}, core.CreatePayment{ExternalID: "order-failed", Amount: "0.25", Currency: "USDT", PaymentMethod: "crypto_payment", Customer: core.Customer{"type": "individual", "externalId": "customer1", "country": "UY"}}, "failed-event-key")
+	if err != nil {
+		t.Fatal(err)
+	}
+	events := NewProviderEvents(store)
+	failure := contract.Failure{Code: "provider_unavailable", Category: "processing", Message: "No fue posible procesar la operación temporalmente."}
+	event := core.ProviderEvent{EventID: "provider-failed-1", EventType: "payment.provider_failed", EventVersion: "1", Source: "webhook", ObservedAt: time.Now(), TransactionID: p.TransactionID, Provider: "test", ProviderConnectionID: "connection1", ProviderPaymentID: "provider1", Data: core.ProviderEventData{Status: "failed", RawStatus: "ERROR", Failure: &failure}}
+	result, err := events.Handle(context.Background(), event)
+	if err != nil || result.FailureCode != "provider_unavailable" {
+		t.Fatalf("result=%#v err=%v", result, err)
+	}
+	duplicate, err := events.Handle(context.Background(), event)
+	if err != nil || !duplicate.Duplicate || duplicate.FailureCode != "" {
+		t.Fatalf("duplicate=%#v err=%v", duplicate, err)
 	}
 }
 

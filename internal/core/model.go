@@ -326,7 +326,8 @@ type ProviderEventData struct {
 }
 
 type EventResult struct {
-	Duplicate bool   `json:"duplicate"`
-	Changed   bool   `json:"changed"`
-	Status    string `json:"status,omitempty"`
+	Duplicate   bool   `json:"duplicate"`
+	Changed     bool   `json:"changed"`
+	Status      string `json:"status,omitempty"`
+	FailureCode string `json:"-"`
 }

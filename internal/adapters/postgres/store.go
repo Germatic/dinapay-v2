@@ -224,7 +224,11 @@ func (s *Store) ApplyProviderEvent(ctx context.Context, event core.ProviderEvent
 	if err := tx.Commit(ctx); err != nil {
 		return core.EventResult{}, err
 	}
-	return core.EventResult{Changed: true, Status: p.Status}, nil
+	failureCode := ""
+	if p.Failure != nil {
+		failureCode, _ = p.Failure["code"].(string)
+	}
+	return core.EventResult{Changed: true, Status: p.Status, FailureCode: failureCode}, nil
 }
 
 func paymentFailure(raw []byte) map[string]any {
