@@ -123,6 +123,8 @@ CREATE TABLE IF NOT EXISTS dinapay_v2_refunds (
 );
 CREATE INDEX IF NOT EXISTS dinapay_v2_refunds_pending_idx ON dinapay_v2_refunds(next_attempt_at,creation_date)
   WHERE status IN ('pending_debit','pending_provider','pending','pending_compensation');
+ALTER TABLE dinapay_v2_refunds ADD COLUMN IF NOT EXISTS failure JSONB;
+ALTER TABLE dinapay_v2_refunds ADD COLUMN IF NOT EXISTS provider_failure JSONB;
 
 CREATE TABLE IF NOT EXISTS dinapay_v2_payouts (
   payout_id UUID PRIMARY KEY, account_id TEXT NOT NULL, merchant_id TEXT NOT NULL,

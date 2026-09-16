@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"time"
 
+	contract "github.com/Germatic/dinapay-contracts/go/connectorcontract/failures"
 	"github.com/Germatic/dinapay-v2/internal/core"
 	"github.com/jackc/pgx/v5"
 )
@@ -77,26 +78,45 @@ func deterministicID(v string) string {
 }
 func nowUTC() time.Time { return time.Now().UTC() }
 
-const refundSelect = `SELECT r.refund_id::text,r.transaction_id::text,r.account_id,r.merchant_id,r.external_id,r.status,r.amount,r.currency,COALESCE(r.reason,''),r.metadata,COALESCE(r.provider_refund_id,''),COALESCE(r.provider_status,''),r.balance_debited,r.provider_submitted,r.resource_version,r.next_attempt_at,r.creation_date,r.completion_date,p.provider_payment_id,p.route_decision,COALESCE(r.last_error,'') FROM dinapay_v2_refunds r JOIN dinapay_v2_payments p ON p.transaction_id=r.transaction_id `
+const refundSelect = `SELECT r.refund_id::text,r.transaction_id::text,r.account_id,r.merchant_id,r.external_id,r.status,r.amount,r.currency,COALESCE(r.reason,''),r.metadata,COALESCE(r.provider_refund_id,''),COALESCE(r.provider_status,''),r.balance_debited,r.provider_submitted,r.resource_version,r.next_attempt_at,r.creation_date,r.completion_date,p.provider_payment_id,p.route_decision,COALESCE(r.last_error,''),r.failure,r.provider_failure FROM dinapay_v2_refunds r JOIN dinapay_v2_payments p ON p.transaction_id=r.transaction_id `
 
 type refundScanner interface{ Scan(...any) error }
 
 func scanRefund(row refundScanner) (core.Refund, string, error) {
 	var r core.Refund
-	var metadata, route []byte
+	var metadata, route, failure, providerFailure []byte
 	var operational, lastError string
-	err := row.Scan(&r.RefundID, &r.TransactionID, &r.AccountID, &r.MerchantID, &r.ExternalID, &operational, &r.Amount, &r.Currency, &r.Reason, &metadata, &r.ProviderReference, &r.Status, &r.BalanceDebited, &r.ProviderSubmitted, &r.ResourceVersion, &r.NextAttemptAt, &r.CreationDate, &r.CompletionDate, &r.ProviderPaymentID, &route, &lastError)
+	err := row.Scan(&r.RefundID, &r.TransactionID, &r.AccountID, &r.MerchantID, &r.ExternalID, &operational, &r.Amount, &r.Currency, &r.Reason, &metadata, &r.ProviderReference, &r.Status, &r.BalanceDebited, &r.ProviderSubmitted, &r.ResourceVersion, &r.NextAttemptAt, &r.CreationDate, &r.CompletionDate, &r.ProviderPaymentID, &route, &lastError, &failure, &providerFailure)
 	if err != nil {
 		return r, "", err
 	}
 	r.OperationalStatus = operational
 	r.Status = publicRefundStatus(operational)
-	if lastError != "" {
-		r.Failure = map[string]any{"code": "refund_failed", "message": lastError}
+	if operational == "failed" {
+		r.Failure = refundFailure(failure, lastError)
 	}
+	_ = json.Unmarshal(providerFailure, &r.ProviderFailure)
 	_ = json.Unmarshal(metadata, &r.Metadata)
 	_ = json.Unmarshal(route, &r.Route)
 	return r, operational, nil
+}
+
+func refundFailure(raw []byte, lastError string) map[string]any {
+	var normalized contract.Failure
+	if json.Unmarshal(raw, &normalized) == nil && contract.ValidRefund(normalized) {
+		encoded, _ := json.Marshal(normalized)
+		var detail map[string]any
+		_ = json.Unmarshal(encoded, &detail)
+		return detail
+	}
+	if len(raw) == 0 && lastError == "" {
+		return nil
+	}
+	fallback := contract.NewRefund(contract.RefundUnknownError)
+	encoded, _ := json.Marshal(fallback)
+	var detail map[string]any
+	_ = json.Unmarshal(encoded, &detail)
+	return detail
 }
 func publicRefundStatus(v string) string {
 	if v == "succeeded" {
@@ -161,6 +181,8 @@ func (s *Store) TransitionRefund(ctx context.Context, id, next string, fields ma
 	providerID, _ := fields["providerRefundId"].(string)
 	providerStatus, _ := fields["providerStatus"].(string)
 	lastError, _ := fields["lastError"].(string)
+	failure, _ := json.Marshal(fields["failure"])
+	providerFailure, _ := json.Marshal(fields["providerFailure"])
 	debited, _ := fields["balanceDebited"].(bool)
 	submitted, _ := fields["providerSubmitted"].(bool)
 	tx, err := s.db.Begin(ctx)
@@ -168,7 +190,7 @@ func (s *Store) TransitionRefund(ctx context.Context, id, next string, fields ma
 		return core.Refund{}, err
 	}
 	defer tx.Rollback(ctx)
-	tag, err := tx.Exec(ctx, `UPDATE dinapay_v2_refunds SET status=$3,provider_refund_id=COALESCE(NULLIF($4,''),provider_refund_id),provider_status=COALESCE(NULLIF($5,''),provider_status),last_error=NULLIF($6,''),balance_debited=balance_debited OR $7,provider_submitted=provider_submitted OR $8,resource_version=resource_version+1,next_attempt_at=now(),completion_date=CASE WHEN $3 IN ('succeeded','failed') THEN now() ELSE completion_date END,updated_at=now() WHERE refund_id=$1 AND status=$2`, id, expected, next, providerID, providerStatus, lastError, debited, submitted)
+	tag, err := tx.Exec(ctx, `UPDATE dinapay_v2_refunds SET status=$3,provider_refund_id=COALESCE(NULLIF($4,''),provider_refund_id),provider_status=COALESCE(NULLIF($5,''),provider_status),last_error=COALESCE(NULLIF($6,''),last_error),balance_debited=balance_debited OR $7,provider_submitted=provider_submitted OR $8,failure=COALESCE(NULLIF($9::jsonb,'null'::jsonb),failure),provider_failure=COALESCE(NULLIF($10::jsonb,'null'::jsonb),provider_failure),resource_version=resource_version+1,next_attempt_at=now(),completion_date=CASE WHEN $3 IN ('succeeded','failed') THEN now() ELSE completion_date END,updated_at=now() WHERE refund_id=$1 AND status=$2`, id, expected, next, providerID, providerStatus, lastError, debited, submitted, failure, providerFailure)
 	if err != nil {
 		return core.Refund{}, err
 	}
