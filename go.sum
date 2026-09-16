@@ -2,6 +2,8 @@ github.com/Germatic/dinapay-contracts/go/connectorcontract v0.1.0 h1:QtKW2PtUMXy
 github.com/Germatic/dinapay-contracts/go/connectorcontract v0.1.0/go.mod h1:YlQsAlZPj3ARTQblscntPbpaZWdFOkoCWQVzn9ukn1c=
 github.com/Germatic/dinapay-contracts/go/connectorcontract v0.1.1-0.20260916045737-43fb1386279e h1:eQXvs3F/m6E7LQaR/XJkaoQiMS7qJG9IqA7p808K+PI=
 github.com/Germatic/dinapay-contracts/go/connectorcontract v0.1.1-0.20260916045737-43fb1386279e/go.mod h1:YlQsAlZPj3ARTQblscntPbpaZWdFOkoCWQVzn9ukn1c=
+github.com/Germatic/dinapay-contracts/go/connectorcontract v0.2.0 h1:s0ZKl2dNvkqngpQ9UNegwHkhX93pB4gI8NEypKbe6zQ=
+github.com/Germatic/dinapay-contracts/go/connectorcontract v0.2.0/go.mod h1:YlQsAlZPj3ARTQblscntPbpaZWdFOkoCWQVzn9ukn1c=
 github.com/davecgh/go-spew v1.1.0/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c=
 github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
