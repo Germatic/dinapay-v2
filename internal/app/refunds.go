@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	contract "github.com/Germatic/dinapay-contracts/go/connectorcontract/failures"
 	"github.com/Germatic/dinapay-v2/internal/core"
 	"log/slog"
 	"strings"
@@ -12,11 +13,25 @@ import (
 var ErrUnsupported = core.ErrUnsupported
 
 type Refunds struct {
-	store     core.PaymentStore
-	native    core.RefundStore
-	legacy    core.LegacyRefunds
-	connector core.Connector
-	ledger    core.Ledger
+	store          core.PaymentStore
+	native         core.RefundStore
+	legacy         core.LegacyRefunds
+	connector      core.Connector
+	ledger         core.Ledger
+	observeFailure func(operation, provider, code string)
+}
+
+func (s *Refunds) WithFailureObserver(observer func(operation, provider, code string)) *Refunds {
+	s.observeFailure = observer
+	return s
+}
+
+func (s *Refunds) observe(r core.Refund) {
+	if s.observeFailure == nil || r.Failure == nil {
+		return
+	}
+	code, _ := r.Failure["code"].(string)
+	s.observeFailure("refund", r.Route.Provider, code)
 }
 
 func NewRefunds(store core.PaymentStore, native core.RefundStore, legacy core.LegacyRefunds, connector core.Connector, ledger core.Ledger) *Refunds {
@@ -109,7 +124,11 @@ func (s *Refunds) process(ctx context.Context, r core.Refund) {
 			if errors.Is(err, core.ErrInsufficientBalance) {
 				f := transition("pending_debit")
 				f["lastError"] = "insufficient balance"
-				_, _ = s.native.TransitionRefund(ctx, r.RefundID, "failed", f)
+				f["failure"] = contract.NewRefund(contract.RefundInsufficientFunds)
+				updated, transitionErr := s.native.TransitionRefund(ctx, r.RefundID, "failed", f)
+				if transitionErr == nil {
+					s.observe(updated)
+				}
 			}
 			return
 		}
@@ -135,7 +154,10 @@ func (s *Refunds) process(ctx context.Context, r core.Refund) {
 		if s.ledger == nil || s.ledger.CreditFailedRefund(ctx, r.AccountID, r.RefundID, r.Amount, r.Currency) != nil {
 			return
 		}
-		_, _ = s.native.TransitionRefund(ctx, r.RefundID, "failed", transition("pending_compensation"))
+		updated, err := s.native.TransitionRefund(ctx, r.RefundID, "failed", transition("pending_compensation"))
+		if err == nil {
+			s.observe(updated)
+		}
 	}
 }
 func (s *Refunds) applyProvider(ctx context.Context, r core.Refund, p core.ProviderRefund) {
@@ -149,5 +171,30 @@ func (s *Refunds) applyProvider(ctx context.Context, r core.Refund, p core.Provi
 	f["providerSubmitted"] = true
 	f["providerRefundId"] = p.ProviderRefundID
 	f["providerStatus"] = p.RawStatus
+	if next == "pending_compensation" {
+		failure, providerFailure := normalizeRefundFailure(p)
+		f["failure"] = failure
+		f["providerFailure"] = providerFailure
+	}
 	_, _ = s.native.TransitionRefund(ctx, r.RefundID, next, f)
+}
+
+func normalizeRefundFailure(result core.ProviderRefund) (contract.Failure, contract.ProviderFailure) {
+	public := contract.NewRefund(contract.RefundUnknownError)
+	if result.Failure != nil && contract.ValidRefund(*result.Failure) {
+		public = *result.Failure
+	}
+	provider := contract.ProviderFailure{}
+	if result.ProviderFailure != nil {
+		provider = *result.ProviderFailure
+	} else if result.RawStatus != "" {
+		provider.Code = result.RawStatus
+	}
+	if result.Failure != nil && !contract.ValidRefund(*result.Failure) {
+		if provider.Details == nil {
+			provider.Details = map[string]any{}
+		}
+		provider.Details["invalidNormalizedFailure"] = result.Failure
+	}
+	return public, provider
 }

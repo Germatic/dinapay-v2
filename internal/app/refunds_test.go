@@ -5,6 +5,7 @@ import (
 	"errors"
 	"testing"
 
+	contract "github.com/Germatic/dinapay-contracts/go/connectorcontract/failures"
 	"github.com/Germatic/dinapay-v2/internal/core"
 )
 
@@ -34,7 +35,11 @@ func (s *refundStoreStub) TransitionRefund(_ context.Context, _ string, next str
 		copyFields[k] = v
 	}
 	s.transitions = append(s.transitions, refundTransition{expected: fields["expectedStatus"].(string), next: next, fields: copyFields})
-	return core.Refund{OperationalStatus: next}, nil
+	result := core.Refund{OperationalStatus: next, Route: core.RouteDecision{Provider: "binancepay"}}
+	if failure, ok := fields["failure"].(contract.Failure); ok {
+		result.Failure = map[string]any{"code": failure.Code, "category": failure.Category, "message": failure.Message}
+	}
+	return result, nil
 }
 
 type refundLedgerStub struct {
@@ -89,7 +94,10 @@ func TestRefundInsufficientBalanceFailsBeforeProvider(t *testing.T) {
 	store := &refundStoreStub{}
 	ledger := &refundLedgerStub{debitErr: core.ErrInsufficientBalance}
 	connector := &refundConnectorStub{}
-	svc := NewRefunds(nil, store, nil, connector, ledger)
+	var observedOperation, observedProvider, observedCode string
+	svc := NewRefunds(nil, store, nil, connector, ledger).WithFailureObserver(func(operation, provider, code string) {
+		observedOperation, observedProvider, observedCode = operation, provider, code
+	})
 
 	svc.process(context.Background(), testRefund("pending_debit"))
 
@@ -99,21 +107,47 @@ func TestRefundInsufficientBalanceFailsBeforeProvider(t *testing.T) {
 	if len(store.transitions) != 1 || store.transitions[0].expected != "pending_debit" || store.transitions[0].next != "failed" {
 		t.Fatalf("unexpected transitions: %#v", store.transitions)
 	}
+	failure, ok := store.transitions[0].fields["failure"].(contract.Failure)
+	if !ok || failure.Code != string(contract.RefundInsufficientFunds) {
+		t.Fatalf("failure=%#v", store.transitions[0].fields["failure"])
+	}
+	if observedOperation != "refund" || observedProvider != "binancepay" || observedCode != string(contract.RefundInsufficientFunds) {
+		t.Fatalf("observed=%q/%q/%q", observedOperation, observedProvider, observedCode)
+	}
 }
 
 func TestRefundProviderRejectionIsCompensated(t *testing.T) {
 	store := &refundStoreStub{}
 	ledger := &refundLedgerStub{}
-	connector := &refundConnectorStub{createResult: core.ProviderRefund{ProviderRefundID: "provider-refund-1", Status: "rejected", RawStatus: "REJECTED"}}
+	public := contract.NewRefund(contract.RefundRejected)
+	native := contract.ProviderFailure{Code: "400612", Message: "native rejection"}
+	connector := &refundConnectorStub{createResult: core.ProviderRefund{ProviderRefundID: "provider-refund-1", Status: "rejected", RawStatus: "REFUND_FAIL", Failure: &public, ProviderFailure: &native}}
 	svc := NewRefunds(nil, store, nil, connector, ledger)
 
 	svc.process(context.Background(), testRefund("pending_provider"))
 	if len(store.transitions) != 1 || store.transitions[0].next != "pending_compensation" {
 		t.Fatalf("provider rejection transition: %#v", store.transitions)
 	}
+	if got := store.transitions[0].fields["failure"].(contract.Failure); got.Code != string(contract.RefundRejected) {
+		t.Fatalf("failure=%#v", got)
+	}
+	if got := store.transitions[0].fields["providerFailure"].(contract.ProviderFailure); got.Code != "400612" {
+		t.Fatalf("provider failure=%#v", got)
+	}
 	svc.process(context.Background(), testRefund("pending_compensation"))
 	if ledger.creditCalls != 1 || len(store.transitions) != 2 || store.transitions[1].next != "failed" {
 		t.Fatalf("compensation calls=%d transitions=%#v", ledger.creditCalls, store.transitions)
+	}
+}
+
+func TestRefundInvalidConnectorFailureFallsBackWithoutExposure(t *testing.T) {
+	invalid := contract.Failure{Code: "binance_native", Category: "provider", Message: "native message"}
+	public, native := normalizeRefundFailure(core.ProviderRefund{RawStatus: "REFUND_FAIL", Failure: &invalid})
+	if public.Code != string(contract.RefundUnknownError) || !contract.ValidRefund(public) {
+		t.Fatalf("public=%#v", public)
+	}
+	if native.Code != "REFUND_FAIL" || native.Details["invalidNormalizedFailure"] == nil {
+		t.Fatalf("native=%#v", native)
 	}
 }
 

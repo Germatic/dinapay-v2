@@ -66,6 +66,7 @@ func main() {
 	}
 	nativeRefunds, _ := store.(core.RefundStore)
 	refunds := app.NewRefunds(store, nativeRefunds, httpclient.NewLegacyRefundClient(env("LEGACY_DINAPAY_URL", "http://localhost:8090")), connectors, ledger)
+	refunds.WithFailureObserver(observability.ObserveProviderFailure)
 	if nativeRefunds != nil && ledger != nil {
 		go refunds.Run(context.Background())
 	}
