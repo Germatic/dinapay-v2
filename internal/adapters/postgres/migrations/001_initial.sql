@@ -135,6 +135,7 @@ CREATE TABLE IF NOT EXISTS dinapay_v2_payouts (
   failure_date TIMESTAMPTZ, cancellation_date TIMESTAMPTZ, reversal_date TIMESTAMPTZ,
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now(), UNIQUE (merchant_id,idempotency_key)
 );
+ALTER TABLE dinapay_v2_payouts ADD COLUMN IF NOT EXISTS failure JSONB;
 CREATE TABLE IF NOT EXISTS dinapay_v2_payout_idempotency (
   merchant_id TEXT NOT NULL, idempotency_key TEXT NOT NULL, request_hash TEXT NOT NULL,
   payout_id UUID NOT NULL, status TEXT NOT NULL CHECK(status IN ('pending','complete')),

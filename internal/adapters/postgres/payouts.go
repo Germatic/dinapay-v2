@@ -76,12 +76,12 @@ func (s *Store) ListDashboardPayouts(ctx context.Context, accountID, merchantID 
 }
 
 const dashboardPayoutSelect = `WITH all_payouts AS (
- SELECT payout_id::text,account_id,merchant_id,external_id,status,source_amount,source_currency,destination,pricing,remitter,COALESCE(description,''),metadata,COALESCE(provider_payout_id,''),COALESCE(provider_reference,''),COALESCE(provider_status,''),route_decision,balance_debited,provider_submitted,resource_version,next_attempt_at,creation_date,confirmation_date,failure_date,cancellation_date,reversal_date,COALESCE(last_error,'') FROM dinapay_v2_payouts
+ SELECT payout_id::text,account_id,merchant_id,external_id,status,source_amount,source_currency,destination,pricing,remitter,COALESCE(description,''),metadata,COALESCE(provider_payout_id,''),COALESCE(provider_reference,''),COALESCE(provider_status,''),route_decision,balance_debited,provider_submitted,resource_version,next_attempt_at,creation_date,confirmation_date,failure_date,cancellation_date,reversal_date,COALESCE(last_error,''),failure FROM dinapay_v2_payouts
  UNION ALL
 	SELECT p.id::text,COALESCE(p.account_id,''),COALESCE(p.merchant_id,''),COALESCE(p.external_id,''),CASE WHEN p.status='completed' THEN 'confirmed' ELSE p.status END,p.amount::text,p.currency,
  COALESCE(p.destination,jsonb_build_object('country','AR','currency',COALESCE(NULLIF(p.destination_currency,''),p.currency),'amount',COALESCE(p.destination_amount::text,p.amount::text),'beneficiary',jsonb_build_object('name',COALESCE(p.destination_name,''),'documentNumber',COALESCE(p.destination_cuit,'')),'rail',jsonb_build_object('type',COALESCE(p.rail_code,'bank_transfer'),'identifier',COALESCE(p.destination_cbu,'')))),
  jsonb_strip_nulls(jsonb_build_object('feeAmount',p.fee_amount,'platformFeeAmount',p.platform_fee_amount,'exchangeRate',p.exchange_rate)), '{}'::jsonb, ''::text, '{}'::jsonb, '',COALESCE(p.provider_reference,p.coinag_trx_id,''),p.status,
- jsonb_build_object('provider',COALESCE(p.provider_code,''),'rail',COALESCE(p.rail_code,'')), p.status IN ('confirmed','completed'),p.submitted_at IS NOT NULL,1,p.created_at,p.created_at,p.completed_at,CASE WHEN p.status='failed' THEN p.updated_at END,NULL::timestamptz,p.reversed_at,COALESCE(p.error_message,'') FROM payouts p
+ jsonb_build_object('provider',COALESCE(p.provider_code,''),'rail',COALESCE(p.rail_code,'')), p.status IN ('confirmed','completed'),p.submitted_at IS NOT NULL,1,p.created_at,p.created_at,p.completed_at,CASE WHEN p.status='failed' THEN p.updated_at END,NULL::timestamptz,p.reversed_at,COALESCE(p.error_message,''),NULL::jsonb FROM payouts p
 ) SELECT * FROM all_payouts WHERE ($1='' OR merchant_id=$1) AND ($2='' OR account_id=$2) AND ($3='' OR external_id=$3) AND ($4='' OR status=$4) AND ($5='' OR source_currency=$5)
  AND ($6::timestamptz IS NULL OR creation_date >= $6) AND ($7::timestamptz IS NULL OR creation_date < $7)
  AND ($8::timestamptz IS NULL OR confirmation_date >= $8) AND ($9::timestamptz IS NULL OR confirmation_date < $9)
@@ -136,15 +136,15 @@ func (s *Store) CompletePayout(ctx context.Context, principal core.Principal, ke
 	return p, nil
 }
 
-const payoutSelect = `SELECT payout_id::text,account_id,merchant_id,external_id,status,source_amount,source_currency,destination,pricing,remitter,COALESCE(description,''),metadata,COALESCE(provider_payout_id,''),COALESCE(provider_reference,''),COALESCE(provider_status,''),route_decision,balance_debited,provider_submitted,resource_version,next_attempt_at,creation_date,confirmation_date,failure_date,cancellation_date,reversal_date,COALESCE(last_error,'') FROM dinapay_v2_payouts `
+const payoutSelect = `SELECT payout_id::text,account_id,merchant_id,external_id,status,source_amount,source_currency,destination,pricing,remitter,COALESCE(description,''),metadata,COALESCE(provider_payout_id,''),COALESCE(provider_reference,''),COALESCE(provider_status,''),route_decision,balance_debited,provider_submitted,resource_version,next_attempt_at,creation_date,confirmation_date,failure_date,cancellation_date,reversal_date,COALESCE(last_error,''),failure FROM dinapay_v2_payouts `
 
 type payoutScanner interface{ Scan(...any) error }
 
 func scanPayout(row payoutScanner) (core.Payout, error) {
 	var p core.Payout
 	var operational, providerStatus, lastError string
-	var destination, pricing, remitter, metadata, route []byte
-	err := row.Scan(&p.PayoutID, &p.AccountID, &p.MerchantID, &p.ExternalID, &operational, &p.Source.Amount, &p.Source.Currency, &destination, &pricing, &remitter, &p.Description, &metadata, &p.ProviderPayoutID, &p.BankSystemTrxID, &providerStatus, &route, &p.BalanceDebited, &p.ProviderSubmitted, &p.ResourceVersion, &p.NextAttemptAt, &p.CreationDate, &p.ConfirmationDate, &p.FailureDate, &p.CancellationDate, &p.ReversalDate, &lastError)
+	var destination, pricing, remitter, metadata, route, failure []byte
+	err := row.Scan(&p.PayoutID, &p.AccountID, &p.MerchantID, &p.ExternalID, &operational, &p.Source.Amount, &p.Source.Currency, &destination, &pricing, &remitter, &p.Description, &metadata, &p.ProviderPayoutID, &p.BankSystemTrxID, &providerStatus, &route, &p.BalanceDebited, &p.ProviderSubmitted, &p.ResourceVersion, &p.NextAttemptAt, &p.CreationDate, &p.ConfirmationDate, &p.FailureDate, &p.CancellationDate, &p.ReversalDate, &lastError, &failure)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return p, core.ErrNotFound
 	}
@@ -158,10 +158,23 @@ func scanPayout(row payoutScanner) (core.Payout, error) {
 	_ = json.Unmarshal(route, &p.Route)
 	p.OperationalStatus = operational
 	p.Status = publicPayoutStatus(operational)
-	if operational == "failed" && lastError != "" {
-		p.Failure = map[string]any{"code": "payout_failed", "message": lastError, "retryable": false}
+	if operational == "failed" {
+		p.Failure = payoutFailure(failure, lastError)
 	}
 	return p, nil
+}
+
+func payoutFailure(raw []byte, lastError string) map[string]any {
+	var detail map[string]any
+	if json.Unmarshal(raw, &detail) == nil {
+		if code, _ := detail["code"].(string); code != "" {
+			return detail
+		}
+	}
+	if lastError == "" {
+		return nil
+	}
+	return map[string]any{"code": "payout_failed", "message": lastError, "retryable": false}
 }
 func publicPayoutStatus(v string) string {
 	switch v {
@@ -240,12 +253,13 @@ func (s *Store) TransitionPayout(ctx context.Context, id, next string, f map[str
 	submitted, _ := f["providerSubmitted"].(bool)
 	destinationAmount, _ := f["destinationAmount"].(string)
 	providerPricing, _ := json.Marshal(f["providerPricing"])
+	failure, _ := json.Marshal(f["failure"])
 	tx, err := s.db.Begin(ctx)
 	if err != nil {
 		return core.Payout{}, err
 	}
 	defer tx.Rollback(ctx)
-	tag, err := tx.Exec(ctx, `UPDATE dinapay_v2_payouts SET status=$3,provider_payout_id=COALESCE(NULLIF($4,''),provider_payout_id),provider_reference=COALESCE(NULLIF($5,''),provider_reference),provider_status=COALESCE(NULLIF($6,''),provider_status),last_error=COALESCE(NULLIF($7,''),last_error),balance_debited=balance_debited OR $8,provider_submitted=provider_submitted OR $9,destination=CASE WHEN $10='' THEN destination ELSE jsonb_set(destination,'{amount}',to_jsonb($10::text),true) END,pricing=COALESCE(pricing,'{}'::jsonb)||COALESCE(NULLIF($11::jsonb,'null'::jsonb),'{}'::jsonb),resource_version=resource_version+1,next_attempt_at=now(),confirmation_date=CASE WHEN $3='confirmed' THEN now() ELSE confirmation_date END,failure_date=CASE WHEN $3='failed' THEN now() ELSE failure_date END,cancellation_date=CASE WHEN $3='cancelled' THEN now() ELSE cancellation_date END,reversal_date=CASE WHEN $3='reversed' THEN now() ELSE reversal_date END,updated_at=now() WHERE payout_id=$1 AND status=$2`, id, expected, next, providerID, reference, providerStatus, lastError, debited, submitted, destinationAmount, providerPricing)
+	tag, err := tx.Exec(ctx, `UPDATE dinapay_v2_payouts SET status=$3,provider_payout_id=COALESCE(NULLIF($4,''),provider_payout_id),provider_reference=COALESCE(NULLIF($5,''),provider_reference),provider_status=COALESCE(NULLIF($6,''),provider_status),last_error=COALESCE(NULLIF($7,''),last_error),failure=COALESCE(NULLIF($12::jsonb,'null'::jsonb),failure),balance_debited=balance_debited OR $8,provider_submitted=provider_submitted OR $9,destination=CASE WHEN $10='' THEN destination ELSE jsonb_set(destination,'{amount}',to_jsonb($10::text),true) END,pricing=COALESCE(pricing,'{}'::jsonb)||COALESCE(NULLIF($11::jsonb,'null'::jsonb),'{}'::jsonb),resource_version=resource_version+1,next_attempt_at=now(),confirmation_date=CASE WHEN $3='confirmed' THEN now() ELSE confirmation_date END,failure_date=CASE WHEN $3='failed' THEN now() ELSE failure_date END,cancellation_date=CASE WHEN $3='cancelled' THEN now() ELSE cancellation_date END,reversal_date=CASE WHEN $3='reversed' THEN now() ELSE reversal_date END,updated_at=now() WHERE payout_id=$1 AND status=$2`, id, expected, next, providerID, reference, providerStatus, lastError, debited, submitted, destinationAmount, providerPricing, failure)
 	if err != nil {
 		return core.Payout{}, err
 	}
@@ -316,6 +330,14 @@ func (s *Store) ApplyPayoutProviderEvent(ctx context.Context, event core.Provide
 		return core.EventResult{Status: p.Status}, nil
 	}
 	f := map[string]any{"expectedStatus": p.OperationalStatus, "providerSubmitted": true, "providerPayoutId": event.ProviderPayoutID, "providerReference": event.Data.ProviderReference, "providerStatus": event.Data.RawStatus}
+	if next == "pending_compensation" {
+		f["lastError"] = "provider rejected payout"
+		if failure, ok := event.Data.ProviderData["failure"].(map[string]any); ok {
+			if code, _ := failure["code"].(string); code != "" {
+				f["failure"] = failure
+			}
+		}
+	}
 	updated, err := s.TransitionPayout(ctx, p.PayoutID, next, f)
 	if err != nil {
 		_, _ = s.db.Exec(context.WithoutCancel(ctx), `DELETE FROM dinapay_v2_provider_events WHERE event_id=$1`, event.EventID)
