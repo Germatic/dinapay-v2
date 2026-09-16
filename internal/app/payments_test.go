@@ -18,6 +18,12 @@ func (routerStub) Resolve(_ context.Context, r core.RouteRequest) (core.RouteDec
 
 type connectorStub struct{}
 
+type qrConnectorStub struct{ connectorStub }
+
+func (qrConnectorStub) CreatePayment(_ context.Context, _ core.RouteDecision, p core.Payment, _, _ string) (core.ProviderPayment, error) {
+	return core.ProviderPayment{TransactionID: p.TransactionID, Provider: "pvs", ProviderConnectionID: "pvs_main", ProviderPaymentID: "qr-1", Status: "pending", ExpiresAt: time.Date(2026, 9, 16, 19, 30, 0, 0, time.UTC), Completion: map[string]any{"type": "qr", "format": "emv", "content": "000201", "imageBase64": "aW1hZ2U="}}, nil
+}
+
 func (connectorStub) CreateRefund(context.Context, core.RouteDecision, core.Payment, core.Refund, string) (core.ProviderRefund, error) {
 	return core.ProviderRefund{}, core.ErrUnsupported
 }
@@ -70,6 +76,19 @@ func TestCreateUsesConfiguredDinariaCheckout(t *testing.T) {
 	}
 	if p.ActionURL != "https://checkout.demo.dinaria.com/pay/"+p.TransactionID {
 		t.Fatalf("actionUrl=%s", p.ActionURL)
+	}
+}
+
+func TestCreateCopiesProviderExpirationIntoQRPaymentData(t *testing.T) {
+	svc := NewPayments(routerStub{}, qrConnectorStub{}, memory.NewStore(), static.NewAuth("test-key=account1:merchant1"), "")
+	in := core.CreatePayment{ExternalID: "qr-order", Amount: "150.00", Currency: "ARS", PaymentMethod: "qr", Customer: core.Customer{"type": "individual", "externalId": "customer1", "country": "AR"}}
+	payment, _, err := svc.Create(context.Background(), core.Principal{MerchantID: "merchant1"}, in, "qr-expiry-key")
+	if err != nil {
+		t.Fatal(err)
+	}
+	qr := payment.PaymentData["qr"].(map[string]any)
+	if qr["expiresAt"] != payment.ExpirationDate {
+		t.Fatalf("paymentData.qr.expiresAt=%v expirationDate=%v", qr["expiresAt"], payment.ExpirationDate)
 	}
 }
 

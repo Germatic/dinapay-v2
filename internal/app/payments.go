@@ -80,6 +80,11 @@ func (s *Payments) Create(ctx context.Context, principal core.Principal, in core
 	if !provider.ExpiresAt.IsZero() {
 		payment.ExpirationDate = provider.ExpiresAt
 	}
+	if payment.PaymentData["type"] == "qr" && !payment.ExpirationDate.IsZero() {
+		if qr, ok := payment.PaymentData["qr"].(map[string]any); ok {
+			qr["expiresAt"] = payment.ExpirationDate
+		}
+	}
 	payment.ActionURL = s.actionURL(payment.PaymentData, txID)
 	eventID := deterministicUUID("payment.created:" + txID)
 	body, err := json.Marshal(map[string]any{
