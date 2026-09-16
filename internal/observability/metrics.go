@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -16,6 +17,7 @@ var buckets = [...]float64{.005, .01, .025, .05, .1, .25, .5, 1, 2.5, 5, 10}
 
 type httpKey struct{ method, route, status string }
 type durationKey struct{ method, route string }
+type providerFailureKey struct{ operation, provider, code string }
 type histogram struct {
 	count   uint64
 	sum     float64
@@ -28,6 +30,51 @@ var metrics = struct {
 	durations map[durationKey]histogram
 	gauges    map[string]float64
 }{requests: map[httpKey]uint64{}, durations: map[durationKey]histogram{}, gauges: map[string]float64{}}
+
+// Provider-failure counters are kept separately from the HTTP histograms so
+// recording a business failure never contends on the HTTP metrics mutex. The
+// number of series is bounded by the operation, provider and canonical failure
+// catalogs; resource identifiers and raw provider messages are never labels.
+var providerFailures struct {
+	sync.Mutex
+	snapshot atomic.Pointer[map[providerFailureKey]*atomic.Uint64]
+}
+
+func ObserveProviderFailure(operation, provider, code string) {
+	if operation == "" || provider == "" || code == "" {
+		return
+	}
+	key := providerFailureKey{operation: operation, provider: provider, code: code}
+	counter := providerFailureCounter(key)
+	counter.Add(1)
+}
+
+func providerFailureCounter(key providerFailureKey) *atomic.Uint64 {
+	if current := providerFailures.snapshot.Load(); current != nil {
+		if counter := (*current)[key]; counter != nil {
+			return counter
+		}
+	}
+	providerFailures.Lock()
+	defer providerFailures.Unlock()
+	current := providerFailures.snapshot.Load()
+	if current != nil {
+		if counter := (*current)[key]; counter != nil {
+			return counter
+		}
+	}
+	next := make(map[providerFailureKey]*atomic.Uint64, 1)
+	if current != nil {
+		next = make(map[providerFailureKey]*atomic.Uint64, len(*current)+1)
+		for existingKey, counter := range *current {
+			next[existingKey] = counter
+		}
+	}
+	counter := &atomic.Uint64{}
+	next[key] = counter
+	providerFailures.snapshot.Store(&next)
+	return counter
+}
 
 func SetPersistent(webhooks, webhookAge, ledger, ledgerAge, unknownPayouts, unknownPayoutAge float64) {
 	metrics.Lock()
@@ -80,6 +127,15 @@ func Handler() http.Handler {
 		}
 		for name, value := range metrics.gauges {
 			lines = append(lines, fmt.Sprintf("%s %g", name, value))
+		}
+		if failures := providerFailures.snapshot.Load(); failures != nil {
+			for key, counter := range *failures {
+				value := counter.Load()
+				lines = append(lines, fmt.Sprintf("dinapay_provider_operation_failures_total{service=%q,operation=%q,provider=%q,code=%q} %d", service, key.operation, key.provider, key.code, value))
+				if key.code == "unknown_error" {
+					lines = append(lines, fmt.Sprintf("dinapay_provider_unmapped_failures_total{service=%q,operation=%q,provider=%q} %d", service, key.operation, key.provider, value))
+				}
+			}
 		}
 		sort.Strings(lines)
 		_, _ = fmt.Fprintln(w, strings.Join(lines, "\n"))

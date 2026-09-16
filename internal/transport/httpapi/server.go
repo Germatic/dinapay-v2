@@ -463,6 +463,13 @@ func (s *Server) providerEvent(w http.ResponseWriter, r *http.Request) {
 		mapError(w, err)
 		return
 	}
+	if result.Changed && event.Data.Failure != nil {
+		operation := "payment"
+		if strings.HasPrefix(event.EventType, "payout.provider_") {
+			operation = "payout"
+		}
+		observability.ObserveProviderFailure(operation, event.Provider, event.Data.Failure.Code)
+	}
 	writeJSON(w, 202, result)
 }
 
