@@ -7,6 +7,7 @@ import (
 	"errors"
 	"time"
 
+	contract "github.com/Germatic/dinapay-contracts/go/connectorcontract/failures"
 	"github.com/Germatic/dinapay-v2/internal/core"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -99,10 +100,10 @@ func (s *Store) Get(ctx context.Context, accountID, merchantID, transactionID st
 
 func (s *Store) getV2(ctx context.Context, accountID, merchantID, transactionID string) (core.Payment, error) {
 	var p core.Payment
-	var customer, metadata, paymentData, pricing, route []byte
-	err := s.db.QueryRow(ctx, `SELECT transaction_id::text,account_id,merchant_id,external_id,status,amount,COALESCE(received_amount,''),currency,payment_method,COALESCE(description,''),creation_date,expiration_date,confirmation_date,action_url,customer,metadata,payment_data,COALESCE(pricing,'{}'),provider_payment_id,COALESCE(provider_reference,''),route_decision,resource_version
+	var customer, metadata, paymentData, pricing, route, failure, providerFailure []byte
+	err := s.db.QueryRow(ctx, `SELECT transaction_id::text,account_id,merchant_id,external_id,status,amount,COALESCE(received_amount,''),currency,payment_method,COALESCE(description,''),creation_date,expiration_date,confirmation_date,action_url,customer,metadata,payment_data,COALESCE(pricing,'{}'),provider_payment_id,COALESCE(provider_reference,''),route_decision,resource_version,failure,provider_failure
       FROM dinapay_v2_payments WHERE transaction_id=$1 AND (($2<>'' AND merchant_id=$2) OR ($2='' AND $3<>'' AND account_id=$3))`, transactionID, merchantID, accountID).Scan(
-		&p.TransactionID, &p.AccountID, &p.MerchantID, &p.ExternalID, &p.Status, &p.Amount, &p.ReceivedAmount, &p.Currency, &p.PaymentMethod, &p.Description, &p.CreationDate, &p.ExpirationDate, &p.ConfirmationDate, &p.ActionURL, &customer, &metadata, &paymentData, &pricing, &p.ProviderPaymentID, &p.ProviderReference, &route, &p.Version)
+		&p.TransactionID, &p.AccountID, &p.MerchantID, &p.ExternalID, &p.Status, &p.Amount, &p.ReceivedAmount, &p.Currency, &p.PaymentMethod, &p.Description, &p.CreationDate, &p.ExpirationDate, &p.ConfirmationDate, &p.ActionURL, &customer, &metadata, &paymentData, &pricing, &p.ProviderPaymentID, &p.ProviderReference, &route, &p.Version, &failure, &providerFailure)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return p, core.ErrNotFound
 	}
@@ -114,6 +115,8 @@ func (s *Store) getV2(ctx context.Context, accountID, merchantID, transactionID 
 	_ = json.Unmarshal(paymentData, &p.PaymentData)
 	_ = json.Unmarshal(pricing, &p.Pricing)
 	_ = json.Unmarshal(route, &p.Route)
+	p.Failure = paymentFailure(failure)
+	_ = json.Unmarshal(providerFailure, &p.ProviderFailure)
 	p.Origin = "v2"
 	return p, nil
 }
@@ -133,8 +136,8 @@ func (s *Store) ApplyProviderEvent(ctx context.Context, event core.ProviderEvent
 		return core.EventResult{Duplicate: true}, tx.Commit(ctx)
 	}
 	var p core.Payment
-	var customer, metadata, paymentData, pricing, route []byte
-	err = tx.QueryRow(ctx, `SELECT transaction_id::text,account_id,merchant_id,external_id,status,amount,COALESCE(received_amount,''),currency,payment_method,COALESCE(description,''),creation_date,expiration_date,confirmation_date,action_url,customer,metadata,payment_data,COALESCE(pricing,'{}'),provider_payment_id,COALESCE(provider_reference,''),route_decision,resource_version FROM dinapay_v2_payments WHERE transaction_id=$1 FOR UPDATE`, event.TransactionID).Scan(&p.TransactionID, &p.AccountID, &p.MerchantID, &p.ExternalID, &p.Status, &p.Amount, &p.ReceivedAmount, &p.Currency, &p.PaymentMethod, &p.Description, &p.CreationDate, &p.ExpirationDate, &p.ConfirmationDate, &p.ActionURL, &customer, &metadata, &paymentData, &pricing, &p.ProviderPaymentID, &p.ProviderReference, &route, &p.Version)
+	var customer, metadata, paymentData, pricing, route, failure, providerFailure []byte
+	err = tx.QueryRow(ctx, `SELECT transaction_id::text,account_id,merchant_id,external_id,status,amount,COALESCE(received_amount,''),currency,payment_method,COALESCE(description,''),creation_date,expiration_date,confirmation_date,action_url,customer,metadata,payment_data,COALESCE(pricing,'{}'),provider_payment_id,COALESCE(provider_reference,''),route_decision,resource_version,failure,provider_failure FROM dinapay_v2_payments WHERE transaction_id=$1 FOR UPDATE`, event.TransactionID).Scan(&p.TransactionID, &p.AccountID, &p.MerchantID, &p.ExternalID, &p.Status, &p.Amount, &p.ReceivedAmount, &p.Currency, &p.PaymentMethod, &p.Description, &p.CreationDate, &p.ExpirationDate, &p.ConfirmationDate, &p.ActionURL, &customer, &metadata, &paymentData, &pricing, &p.ProviderPaymentID, &p.ProviderReference, &route, &p.Version, &failure, &providerFailure)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return core.EventResult{}, core.ErrNotFound
 	}
@@ -146,6 +149,8 @@ func (s *Store) ApplyProviderEvent(ctx context.Context, event core.ProviderEvent
 	_ = json.Unmarshal(paymentData, &p.PaymentData)
 	_ = json.Unmarshal(pricing, &p.Pricing)
 	_ = json.Unmarshal(route, &p.Route)
+	p.Failure = paymentFailure(failure)
+	_ = json.Unmarshal(providerFailure, &p.ProviderFailure)
 	if p.Route.Provider != event.Provider || p.Route.ProviderConnectionID != event.ProviderConnectionID || p.ProviderPaymentID != event.ProviderPaymentID {
 		return core.EventResult{}, core.ErrConflict
 	}
@@ -183,7 +188,15 @@ func (s *Store) ApplyProviderEvent(ctx context.Context, event core.ProviderEvent
 		p.Pricing = map[string]any{"feeAmount": feeAmount, "platformFeeAmount": "0"}
 		pricing, _ = json.Marshal(p.Pricing)
 	}
-	_, err = tx.Exec(ctx, `UPDATE dinapay_v2_payments SET status=$2,provider_reference=COALESCE(NULLIF($3,''),provider_reference),resource_version=$4,confirmation_date=COALESCE(confirmation_date,$5),received_amount=COALESCE(NULLIF($6,''),received_amount),pricing=COALESCE(NULLIF($7::jsonb,'{}'::jsonb),pricing),updated_at=now() WHERE transaction_id=$1`, p.TransactionID, p.Status, event.Data.ProviderReference, p.Version, p.ConfirmationDate, p.ReceivedAmount, pricing)
+	if next == "failed" || next == "expired" || next == "cancelled" {
+		public, native := normalizePaymentEventFailure(event.Data, next)
+		publicRaw, _ := json.Marshal(public)
+		nativeRaw, _ := json.Marshal(native)
+		_ = json.Unmarshal(publicRaw, &p.Failure)
+		_ = json.Unmarshal(nativeRaw, &p.ProviderFailure)
+		failure, providerFailure = publicRaw, nativeRaw
+	}
+	_, err = tx.Exec(ctx, `UPDATE dinapay_v2_payments SET status=$2,provider_reference=COALESCE(NULLIF($3,''),provider_reference),resource_version=$4,confirmation_date=COALESCE(confirmation_date,$5),received_amount=COALESCE(NULLIF($6,''),received_amount),pricing=COALESCE(NULLIF($7::jsonb,'{}'::jsonb),pricing),failure=COALESCE(NULLIF($8::jsonb,'null'::jsonb),failure),provider_failure=COALESCE(NULLIF($9::jsonb,'null'::jsonb),provider_failure),updated_at=now() WHERE transaction_id=$1`, p.TransactionID, p.Status, event.Data.ProviderReference, p.Version, p.ConfirmationDate, p.ReceivedAmount, pricing, failure, providerFailure)
 	if err != nil {
 		return core.EventResult{}, err
 	}
@@ -212,4 +225,41 @@ func (s *Store) ApplyProviderEvent(ctx context.Context, event core.ProviderEvent
 		return core.EventResult{}, err
 	}
 	return core.EventResult{Changed: true, Status: p.Status}, nil
+}
+
+func paymentFailure(raw []byte) map[string]any {
+	var normalized contract.Failure
+	if json.Unmarshal(raw, &normalized) != nil || !contract.ValidPayment(normalized) {
+		return nil
+	}
+	encoded, _ := json.Marshal(normalized)
+	var out map[string]any
+	_ = json.Unmarshal(encoded, &out)
+	return out
+}
+
+func normalizePaymentEventFailure(data core.ProviderEventData, status string) (contract.Failure, contract.ProviderFailure) {
+	code := contract.PaymentUnknownError
+	if status == "expired" {
+		code = contract.PaymentExpired
+	} else if status == "cancelled" {
+		code = contract.PaymentPayerCancelled
+	}
+	public := contract.NewPayment(code)
+	if data.Failure != nil && contract.ValidPayment(*data.Failure) {
+		public = *data.Failure
+	}
+	provider := contract.ProviderFailure{}
+	if data.ProviderFailure != nil {
+		provider = *data.ProviderFailure
+	} else if legacy, ok := data.ProviderData["failure"]; ok {
+		provider.Details = map[string]any{"legacyFailure": legacy}
+	}
+	if data.Failure != nil && !contract.ValidPayment(*data.Failure) {
+		if provider.Details == nil {
+			provider.Details = map[string]any{}
+		}
+		provider.Details["invalidNormalizedFailure"] = data.Failure
+	}
+	return public, provider
 }

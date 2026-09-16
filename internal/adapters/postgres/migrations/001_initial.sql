@@ -42,6 +42,8 @@ ALTER TABLE dinapay_v2_payments ADD COLUMN IF NOT EXISTS provider_reference TEXT
 ALTER TABLE dinapay_v2_payments ADD COLUMN IF NOT EXISTS confirmation_date TIMESTAMPTZ;
 ALTER TABLE dinapay_v2_payments ADD COLUMN IF NOT EXISTS received_amount TEXT;
 ALTER TABLE dinapay_v2_payments ADD COLUMN IF NOT EXISTS pricing JSONB;
+ALTER TABLE dinapay_v2_payments ADD COLUMN IF NOT EXISTS failure JSONB;
+ALTER TABLE dinapay_v2_payments ADD COLUMN IF NOT EXISTS provider_failure JSONB;
 
 CREATE TABLE IF NOT EXISTS dinapay_v2_provider_events (
   event_id       TEXT        PRIMARY KEY,
@@ -136,6 +138,7 @@ CREATE TABLE IF NOT EXISTS dinapay_v2_payouts (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now(), UNIQUE (merchant_id,idempotency_key)
 );
 ALTER TABLE dinapay_v2_payouts ADD COLUMN IF NOT EXISTS failure JSONB;
+ALTER TABLE dinapay_v2_payouts ADD COLUMN IF NOT EXISTS provider_failure JSONB;
 CREATE TABLE IF NOT EXISTS dinapay_v2_payout_idempotency (
   merchant_id TEXT NOT NULL, idempotency_key TEXT NOT NULL, request_hash TEXT NOT NULL,
   payout_id UUID NOT NULL, status TEXT NOT NULL CHECK(status IN ('pending','complete')),

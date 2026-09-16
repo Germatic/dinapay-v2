@@ -1,6 +1,10 @@
 package core
 
-import "time"
+import (
+	"time"
+
+	contract "github.com/Germatic/dinapay-contracts/go/connectorcontract/failures"
+)
 
 type Customer map[string]any
 
@@ -40,6 +44,8 @@ type Payment struct {
 	Metadata          map[string]any `json:"metadata,omitempty"`
 	PaymentData       map[string]any `json:"paymentData"`
 	Pricing           map[string]any `json:"pricing,omitempty"`
+	Failure           map[string]any `json:"failure,omitempty"`
+	ProviderFailure   map[string]any `json:"-"`
 	ProviderPaymentID string         `json:"-"`
 	ProviderReference string         `json:"-"`
 	Route             RouteDecision  `json:"-"`
@@ -134,6 +140,7 @@ type Payout struct {
 	CancellationDate  *time.Time        `json:"cancellationDate,omitempty"`
 	ReversalDate      *time.Time        `json:"reversalDate,omitempty"`
 	Failure           map[string]any    `json:"failure,omitempty"`
+	ProviderFailure   map[string]any    `json:"-"`
 	Metadata          map[string]any    `json:"metadata,omitempty"`
 	AccountID         string            `json:"-"`
 	MerchantID        string            `json:"-"`
@@ -308,12 +315,14 @@ type ProviderEvent struct {
 }
 
 type ProviderEventData struct {
-	Status            string         `json:"status"`
-	RawStatus         string         `json:"rawStatus"`
-	Amount            string         `json:"amount,omitempty"`
-	Currency          string         `json:"currency,omitempty"`
-	ProviderReference string         `json:"providerReference,omitempty"`
-	ProviderData      map[string]any `json:"providerData,omitempty"`
+	Status            string                    `json:"status"`
+	RawStatus         string                    `json:"rawStatus"`
+	Amount            string                    `json:"amount,omitempty"`
+	Currency          string                    `json:"currency,omitempty"`
+	ProviderReference string                    `json:"providerReference,omitempty"`
+	ProviderData      map[string]any            `json:"providerData,omitempty"`
+	Failure           *contract.Failure         `json:"failure,omitempty"`
+	ProviderFailure   *contract.ProviderFailure `json:"providerFailure,omitempty"`
 }
 
 type EventResult struct {
