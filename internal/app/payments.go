@@ -108,6 +108,14 @@ func (s *Payments) Get(ctx context.Context, principal core.Principal, transactio
 	return p, err
 }
 
+func (s *Payments) Checkout(ctx context.Context, transactionID string) (core.CheckoutPayment, error) {
+	reader, ok := s.store.(core.CheckoutPaymentReader)
+	if !ok {
+		return core.CheckoutPayment{}, ErrNotFound
+	}
+	return reader.GetCheckoutPayment(ctx, transactionID)
+}
+
 func (s *Payments) List(ctx context.Context, principal core.Principal, options core.PaymentListOptions) (core.PaymentPage, error) {
 	page, err := s.store.List(ctx, principal.AccountID, principal.MerchantID, options)
 	if err == nil {

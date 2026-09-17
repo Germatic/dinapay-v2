@@ -8,9 +8,54 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/Germatic/dinapay-v2/internal/adapters/memory"
+	"github.com/Germatic/dinapay-v2/internal/adapters/static"
+	"github.com/Germatic/dinapay-v2/internal/app"
 	"github.com/Germatic/dinapay-v2/internal/core"
 )
+
+func TestHostedCheckoutRendersSafeQRAndMinimalStatus(t *testing.T) {
+	const transactionID = "8dd5d1ee-1ba0-4311-bbbd-fd19765b2f93"
+	store := memory.NewStore()
+	_, _, _ = store.BeginCreate(context.Background(), "merchant-1", "checkout-test", "hash", transactionID)
+	payment := core.Payment{
+		TransactionID: transactionID, AccountID: "account-1", MerchantID: "merchant-1", ExternalID: "private-order",
+		Status: "started", Amount: "150.00", Currency: "ARS", PaymentMethod: "qr", CreationDate: time.Now().UTC(),
+		ExpirationDate: time.Now().UTC().Add(15 * time.Minute), Customer: core.Customer{"email": "private@example.com"}, Version: 1,
+		PaymentData:       map[string]any{"type": "qr", "qr": map[string]any{"imageBase64": "iVBORw0KGgo="}},
+		ProviderPaymentID: "private-provider-id",
+	}
+	if err := store.CompleteCreate(context.Background(), payment, core.MerchantEvent{EventID: "event-1"}, "checkout-test"); err != nil {
+		t.Fatal(err)
+	}
+	payments := app.NewPayments(nil, nil, store, static.NewAuth("key=account-1:merchant-1"), "https://checkout.example")
+	handler := New(payments, nil, nil, nil, static.NewAuth("key=account-1:merchant-1"), "service-token")
+
+	page := httptest.NewRecorder()
+	handler.ServeHTTP(page, httptest.NewRequest(http.MethodGet, "/pay/"+transactionID, nil))
+	if page.Code != http.StatusOK || !strings.Contains(page.Body.String(), "Pagá con QR") || !strings.Contains(page.Body.String(), "data:image/png;base64,") {
+		t.Fatalf("status=%d body=%s", page.Code, page.Body.String())
+	}
+	if strings.Contains(page.Body.String(), "private@example.com") || strings.Contains(page.Body.String(), "private-provider-id") || page.Header().Get("Content-Security-Policy") == "" {
+		t.Fatalf("checkout leaked private data or omitted CSP")
+	}
+
+	status := httptest.NewRecorder()
+	handler.ServeHTTP(status, httptest.NewRequest(http.MethodGet, "/public/v1/checkout/payments/"+transactionID+"/status", nil))
+	if status.Code != http.StatusOK || !strings.Contains(status.Body.String(), `"status":"started"`) || strings.Contains(status.Body.String(), "paymentData") {
+		t.Fatalf("status=%d body=%s", status.Code, status.Body.String())
+	}
+	etag := status.Header().Get("ETag")
+	conditional := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/public/v1/checkout/payments/"+transactionID+"/status", nil)
+	req.Header.Set("If-None-Match", etag)
+	handler.ServeHTTP(conditional, req)
+	if conditional.Code != http.StatusNotModified || conditional.Body.Len() != 0 {
+		t.Fatalf("conditional status=%d body=%s", conditional.Code, conditional.Body.String())
+	}
+}
 
 func TestMapErrorSanitizesDependencyFailure(t *testing.T) {
 	recorder := httptest.NewRecorder()

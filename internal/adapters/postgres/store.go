@@ -98,6 +98,22 @@ func (s *Store) Get(ctx context.Context, accountID, merchantID, transactionID st
 	return s.getLegacy(ctx, accountID, merchantID, transactionID)
 }
 
+func (s *Store) GetCheckoutPayment(ctx context.Context, transactionID string) (core.CheckoutPayment, error) {
+	var value core.CheckoutPayment
+	var paymentData []byte
+	err := s.db.QueryRow(ctx, `SELECT transaction_id::text,status,amount,currency,expiration_date,payment_data,resource_version
+      FROM dinapay_v2_payments WHERE transaction_id=$1`, transactionID).Scan(
+		&value.TransactionID, &value.Status, &value.Amount, &value.Currency, &value.ExpirationDate, &paymentData, &value.Version)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return value, core.ErrNotFound
+	}
+	if err != nil {
+		return value, err
+	}
+	_ = json.Unmarshal(paymentData, &value.PaymentData)
+	return value, nil
+}
+
 func (s *Store) getV2(ctx context.Context, accountID, merchantID, transactionID string) (core.Payment, error) {
 	var p core.Payment
 	var customer, metadata, paymentData, pricing, route, failure, providerFailure []byte

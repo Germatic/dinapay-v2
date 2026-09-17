@@ -66,6 +66,16 @@ type PaymentPage struct {
 	NextCursor string    `json:"nextCursor,omitempty"`
 }
 
+type CheckoutPayment struct {
+	TransactionID  string         `json:"transactionId"`
+	Status         string         `json:"status"`
+	Amount         string         `json:"amount"`
+	Currency       string         `json:"currency"`
+	ExpirationDate time.Time      `json:"expirationDate"`
+	PaymentData    map[string]any `json:"paymentData"`
+	Version        int64          `json:"resourceVersion"`
+}
+
 type CreateRefund struct {
 	ExternalID string         `json:"externalId"`
 	Amount     string         `json:"amount"`

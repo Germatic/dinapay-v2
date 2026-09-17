@@ -102,6 +102,16 @@ func (s *Store) Get(_ context.Context, accountID, merchantID, transactionID stri
 	return p, nil
 }
 
+func (s *Store) GetCheckoutPayment(_ context.Context, transactionID string) (core.CheckoutPayment, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	p, ok := s.payments[transactionID]
+	if !ok {
+		return core.CheckoutPayment{}, core.ErrNotFound
+	}
+	return core.CheckoutPayment{TransactionID: p.TransactionID, Status: p.Status, Amount: p.Amount, Currency: p.Currency, ExpirationDate: p.ExpirationDate, PaymentData: p.PaymentData, Version: p.Version}, nil
+}
+
 func (s *Store) ApplyProviderEvent(_ context.Context, event core.ProviderEvent, _ string) (core.EventResult, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

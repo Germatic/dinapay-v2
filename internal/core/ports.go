@@ -38,6 +38,13 @@ type PaymentStore interface {
 	ApplyProviderEvent(context.Context, ProviderEvent, string) (EventResult, error)
 }
 
+// CheckoutPaymentReader exposes the minimum payment view needed by Dinaria's
+// public hosted checkout. Implementations must not return customer, merchant,
+// provider or other operational data.
+type CheckoutPaymentReader interface {
+	GetCheckoutPayment(context.Context, string) (CheckoutPayment, error)
+}
+
 // DashboardPaymentReader is an internal, read-only view across every tenant.
 // It exists so operational dashboards do not query service-owned tables or
 // borrow a merchant credential.
