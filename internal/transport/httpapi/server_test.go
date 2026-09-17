@@ -43,7 +43,8 @@ func TestHostedCheckoutRendersSafeQRAndMinimalStatus(t *testing.T) {
 	}
 	publicPage := httptest.NewRecorder()
 	handler.ServeHTTP(publicPage, httptest.NewRequest(http.MethodGet, "/v2/pay/"+transactionID, nil))
-	if publicPage.Code != http.StatusOK || !strings.Contains(publicPage.Body.String(), "/v2/public/v1/checkout/payments/"+transactionID+"/status") {
+	publicBody := strings.ReplaceAll(publicPage.Body.String(), `\/`, "/")
+	if publicPage.Code != http.StatusOK || !strings.Contains(publicBody, "/v2/public/v1/checkout/payments/"+transactionID+"/status") {
 		t.Fatalf("prefixed checkout status=%d body=%s", publicPage.Code, publicPage.Body.String())
 	}
 
