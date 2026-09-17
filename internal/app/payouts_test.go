@@ -107,6 +107,11 @@ func TestCreateMobilePayoutRequiresCorridorFieldsBeforeRouting(t *testing.T) {
 			svc := NewPayouts(nil, nil, nil, nil, nil)
 			if _, _, err := svc.Create(context.Background(), core.Principal{}, "key", input); !errors.Is(err, ErrInvalid) {
 				t.Fatalf("error=%v", err)
+			} else {
+				var validation *core.ValidationError
+				if !errors.As(err, &validation) || validation.Rule != "required" {
+					t.Fatalf("validation error=%#v", err)
+				}
 			}
 		})
 	}

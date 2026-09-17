@@ -600,7 +600,10 @@ func (s *Server) principal(w http.ResponseWriter, r *http.Request, requiredScope
 }
 
 func mapError(w http.ResponseWriter, err error) {
+	var validation *core.ValidationError
 	switch {
+	case errors.As(err, &validation):
+		writeValidationError(w, validation)
 	case errors.Is(err, core.ErrInvalid):
 		writeError(w, 400, "invalid_request", err.Error())
 	case errors.Is(err, app.ErrInvalid):
@@ -621,6 +624,14 @@ func mapError(w http.ResponseWriter, err error) {
 		writeError(w, 503, "dependency_unavailable", "The requested service is temporarily unavailable.")
 	}
 }
+
+func writeValidationError(w http.ResponseWriter, err *core.ValidationError) {
+	writeJSON(w, http.StatusBadRequest, map[string]any{
+		"code": "invalid_request", "message": err.Error(), "requestId": w.Header().Get("X-Request-Id"),
+		"field": err.Field,
+	})
+}
+
 func writeError(w http.ResponseWriter, status int, code, message string) {
 	writeJSON(w, status, map[string]any{"code": code, "message": message, "requestId": w.Header().Get("X-Request-Id")})
 }

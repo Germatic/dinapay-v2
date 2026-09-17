@@ -88,6 +88,24 @@ func TestMapErrorSanitizesDependencyFailure(t *testing.T) {
 	}
 }
 
+func TestMapErrorIncludesCanonicalValidationField(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	recorder.Header().Set("X-Request-Id", "request-validation")
+
+	mapError(recorder, core.Required("destination.rail.bankCode"))
+
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	var body map[string]any
+	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body["code"] != "invalid_request" || body["field"] != "destination.rail.bankCode" || body["message"] != "destination.rail.bankCode is required" || body["requestId"] != "request-validation" {
+		t.Fatalf("body=%#v", body)
+	}
+}
+
 type dashboardReaderStub struct {
 	accountID      string
 	merchantID     string

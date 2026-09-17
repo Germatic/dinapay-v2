@@ -1,6 +1,9 @@
 package core
 
-import "errors"
+import (
+	"errors"
+	"fmt"
+)
 
 var (
 	ErrInvalid             = errors.New("invalid request")
@@ -12,3 +15,22 @@ var (
 	ErrInsufficientBalance = errors.New("insufficient balance")
 	ErrProviderRejected    = errors.New("provider rejected request")
 )
+
+type ValidationError struct {
+	Field   string
+	Rule    string
+	Message string
+}
+
+func (e *ValidationError) Error() string {
+	if e.Message != "" {
+		return e.Message
+	}
+	return fmt.Sprintf("%s is invalid", e.Field)
+}
+
+func (e *ValidationError) Unwrap() error { return ErrInvalid }
+
+func Required(field string) error {
+	return &ValidationError{Field: field, Rule: "required", Message: field + " is required"}
+}

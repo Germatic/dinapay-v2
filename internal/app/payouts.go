@@ -25,8 +25,8 @@ func (s *Payouts) Create(ctx context.Context, principal core.Principal, key stri
 	if strings.TrimSpace(key) == "" || strings.TrimSpace(in.ExternalID) == "" || strings.TrimSpace(in.Source.Amount) == "" || strings.TrimSpace(in.Source.Currency) == "" || strings.TrimSpace(in.Destination.Country) == "" || strings.TrimSpace(in.Destination.Currency) == "" || len(in.Destination.Beneficiary) == 0 || strings.TrimSpace(stringValue(in.Destination.Rail, "type")) == "" {
 		return core.Payout{}, false, ErrInvalid
 	}
-	if !validPayoutDestination(in.Destination) {
-		return core.Payout{}, false, ErrInvalid
+	if err := validatePayoutDestination(in.Destination); err != nil {
+		return core.Payout{}, false, err
 	}
 	merchantID, err := s.auth.ResolveMerchant(ctx, principal, in.MerchantID)
 	if err != nil {
@@ -58,15 +58,22 @@ func (s *Payouts) Create(ctx context.Context, principal core.Principal, key stri
 }
 func stringValue(v map[string]any, key string) string { x, _ := v[key].(string); return x }
 
-func validPayoutDestination(destination core.PayoutDestination) bool {
+func validatePayoutDestination(destination core.PayoutDestination) error {
 	switch strings.TrimSpace(stringValue(destination.Rail, "type")) {
 	case "ve_mobile_payment":
-		return nonEmptyString(destination.Rail, "bankCode") &&
-			nonEmptyString(destination.Beneficiary, "mobile") &&
-			nonEmptyString(destination.Beneficiary, "documentNumber")
+		if !nonEmptyString(destination.Rail, "bankCode") {
+			return core.Required("destination.rail.bankCode")
+		}
+		if !nonEmptyString(destination.Beneficiary, "mobile") {
+			return core.Required("destination.beneficiary.mobile")
+		}
+		if !nonEmptyString(destination.Beneficiary, "documentNumber") {
+			return core.Required("destination.beneficiary.documentNumber")
+		}
 	default:
-		return true
+		return nil
 	}
+	return nil
 }
 
 func nonEmptyString(value map[string]any, key string) bool {
