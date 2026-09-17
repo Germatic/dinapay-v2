@@ -24,6 +24,8 @@ type checkoutPage struct {
 	ExpiresAt     string
 	QRImage       template.URL
 	RedirectURL   string
+	SuccessURL    string
+	CancelURL     string
 	Nonce         string
 }
 
@@ -52,6 +54,8 @@ func (s *Server) checkoutPage(w http.ResponseWriter, r *http.Request) {
 		ExpiresAt:     payment.ExpirationDate.UTC().Format(time.RFC3339),
 		QRImage:       checkoutQRImage(payment.PaymentData),
 		RedirectURL:   checkoutRedirect(payment.PaymentData),
+		SuccessURL:    checkoutReturnURL(payment.SuccessURL),
+		CancelURL:     checkoutReturnURL(payment.CancelURL),
 		Nonce:         nonce,
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -129,6 +133,14 @@ func checkoutRedirect(paymentData map[string]any) string {
 	return ""
 }
 
+func checkoutReturnURL(value string) string {
+	parsed, err := url.Parse(value)
+	if err != nil || parsed.Host == "" || parsed.User != nil || (parsed.Scheme != "https" && parsed.Scheme != "http") {
+		return ""
+	}
+	return value
+}
+
 var checkoutTemplate = template.Must(template.New("checkout").Parse(`<!doctype html>
 <html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Pagá con Dinaria</title><style nonce="{{.Nonce}}">
@@ -136,5 +148,7 @@ var checkoutTemplate = template.Must(template.New("checkout").Parse(`<!doctype h
 </style></head><body><main class="card"><div class="brand">DINARIA</div><p class="eyebrow">Pago seguro</p><h1 id="title">Pagá con QR</h1><div class="amount" id="amount" data-amount="{{.Amount}}" data-currency="{{.Currency}}">{{.Currency}} {{.Amount}}</div>
 {{if .QRImage}}<img class="qr" src="{{.QRImage}}" width="280" height="280" alt="Código QR para realizar el pago"><ol class="steps"><li>Abrí la aplicación de tu banco o billetera.</li><li>Elegí <strong>Pagar con QR</strong>.</li><li>Escaneá el código y confirmá el importe.</li></ol>{{end}}
 {{if .RedirectURL}}<a class="action" id="redirect" href="{{.RedirectURL}}" rel="noopener">Continuar al pago</a>{{end}}
+{{if .SuccessURL}}<a class="action hidden" id="success-return" href="{{.SuccessURL}}" rel="noopener">Volver al comercio</a>{{end}}
+{{if .CancelURL}}<a class="action hidden" id="cancel-return" href="{{.CancelURL}}" rel="noopener">Volver al comercio</a>{{end}}
 <p class="timer" id="timer" data-expires="{{.ExpiresAt}}"></p><div class="status" id="status" data-state="{{.Status}}">Esperando el pago</div><div class="ref">Operación {{.TransactionID}}</div></main>
-<script nonce="{{.Nonce}}">(()=>{const statusEl=document.getElementById('status'),timer=document.getElementById('timer'),title=document.getElementById('title'),qr=document.querySelector('.qr'),steps=document.querySelector('.steps'),redirect=document.getElementById('redirect'),expires=new Date(timer.dataset.expires),terminal=new Set(['confirmed','expired','cancelled','failed']);let etag='',started=Date.now(),stopped=false,timerId,pollId;const text={started:'Esperando el pago',pending:'Esperando el pago',confirmed:'Pago confirmado',expired:'El código QR venció',cancelled:'Pago cancelado',failed:'No se pudo completar el pago'};function render(state){statusEl.dataset.state=state;statusEl.textContent=text[state]||'Procesando el pago';if(terminal.has(state)){stopped=true;clearTimeout(pollId);if(state==='confirmed')title.textContent='¡Pago confirmado!';if(qr)qr.classList.add('hidden');if(steps)steps.classList.add('hidden');if(redirect)redirect.classList.add('hidden')}}function tick(){const left=Math.max(0,expires-Date.now());if(!Number.isFinite(left)){timer.textContent='';return}const m=Math.floor(left/60000),s=Math.floor(left%60000/1000);timer.textContent=left?'El QR vence en '+String(m).padStart(2,'0')+':'+String(s).padStart(2,'0'):'El QR ha vencido';if(!left&&!stopped)render('expired')}async function poll(){if(stopped||document.hidden)return;try{const headers=etag?{'If-None-Match':etag}:{};const response=await fetch('{{.StatusURL}}',{headers,cache:'no-store'});if(response.status===304)return;if(response.ok){etag=response.headers.get('ETag')||etag;const data=await response.json();render(data.status)}}catch{}finally{if(!stopped){const elapsed=Date.now()-started,delay=elapsed<60000?4000:elapsed<300000?8000:15000;pollId=setTimeout(poll,delay+Math.random()*750)}}}document.addEventListener('visibilitychange',()=>{if(!document.hidden&&!stopped){clearTimeout(pollId);poll()}});render('{{.Status}}');tick();timerId=setInterval(tick,1000);poll()})();</script></body></html>`))
+<script nonce="{{.Nonce}}">(()=>{const statusEl=document.getElementById('status'),timer=document.getElementById('timer'),title=document.getElementById('title'),qr=document.querySelector('.qr'),steps=document.querySelector('.steps'),redirect=document.getElementById('redirect'),successReturn=document.getElementById('success-return'),cancelReturn=document.getElementById('cancel-return'),expires=new Date(timer.dataset.expires),terminal=new Set(['confirmed','expired','cancelled','failed']);let etag='',started=Date.now(),stopped=false,redirectScheduled=false,timerId,pollId;const text={started:'Esperando el pago',pending:'Esperando el pago',confirmed:'Pago confirmado',expired:'El código QR venció',cancelled:'Pago cancelado',failed:'No se pudo completar el pago'};function render(state){statusEl.dataset.state=state;statusEl.textContent=text[state]||'Procesando el pago';if(terminal.has(state)){stopped=true;clearTimeout(pollId);clearInterval(timerId);timer.textContent='';if(state==='confirmed'){title.textContent='¡Pago confirmado!';if(successReturn){successReturn.classList.remove('hidden');if(!redirectScheduled){redirectScheduled=true;statusEl.textContent='Pago confirmado. Volviendo al comercio…';setTimeout(()=>location.assign(successReturn.href),3000)}}}else if(cancelReturn)cancelReturn.classList.remove('hidden');if(qr)qr.classList.add('hidden');if(steps)steps.classList.add('hidden');if(redirect)redirect.classList.add('hidden')}}function tick(){const left=Math.max(0,expires-Date.now());if(!Number.isFinite(left)){timer.textContent='';return}const m=Math.floor(left/60000),s=Math.floor(left%60000/1000);timer.textContent=left?'El QR vence en '+String(m).padStart(2,'0')+':'+String(s).padStart(2,'0'):'El QR ha vencido';if(!left&&!stopped)render('expired')}async function poll(){if(stopped||document.hidden)return;try{const headers=etag?{'If-None-Match':etag}:{};const response=await fetch('{{.StatusURL}}',{headers,cache:'no-store'});if(response.status===304)return;if(response.ok){etag=response.headers.get('ETag')||etag;const data=await response.json();render(data.status)}}catch{}finally{if(!stopped){const elapsed=Date.now()-started,delay=elapsed<60000?4000:elapsed<300000?8000:15000;pollId=setTimeout(poll,delay+Math.random()*750)}}}document.addEventListener('visibilitychange',()=>{if(!document.hidden&&!stopped){clearTimeout(pollId);poll()}});timerId=setInterval(tick,1000);render('{{.Status}}');tick();poll()})();</script></body></html>`))

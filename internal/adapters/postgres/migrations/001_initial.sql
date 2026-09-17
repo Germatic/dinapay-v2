@@ -44,6 +44,8 @@ ALTER TABLE dinapay_v2_payments ADD COLUMN IF NOT EXISTS received_amount TEXT;
 ALTER TABLE dinapay_v2_payments ADD COLUMN IF NOT EXISTS pricing JSONB;
 ALTER TABLE dinapay_v2_payments ADD COLUMN IF NOT EXISTS failure JSONB;
 ALTER TABLE dinapay_v2_payments ADD COLUMN IF NOT EXISTS provider_failure JSONB;
+ALTER TABLE dinapay_v2_payments ADD COLUMN IF NOT EXISTS success_url TEXT;
+ALTER TABLE dinapay_v2_payments ADD COLUMN IF NOT EXISTS cancel_url TEXT;
 
 CREATE TABLE IF NOT EXISTS dinapay_v2_provider_events (
   event_id       TEXT        PRIMARY KEY,

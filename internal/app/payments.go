@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"strings"
 	"time"
 
@@ -27,6 +28,9 @@ func NewPayments(router core.Router, connector core.Connector, store core.Paymen
 
 func (s *Payments) Create(ctx context.Context, principal core.Principal, in core.CreatePayment, idempotencyKey string) (core.Payment, bool, error) {
 	if strings.TrimSpace(idempotencyKey) == "" || in.ExternalID == "" || in.Amount == "" || in.Currency == "" || in.PaymentMethod == "" || len(in.Customer) == 0 {
+		return core.Payment{}, false, ErrInvalid
+	}
+	if !validReturnURL(in.SuccessURL) || !validReturnURL(in.CancelURL) {
 		return core.Payment{}, false, ErrInvalid
 	}
 	merchantID, err := s.merchants.ResolveMerchant(ctx, principal, in.MerchantID)
@@ -64,7 +68,7 @@ func (s *Payments) Create(ctx context.Context, principal core.Principal, in core
 		TransactionID: txID, MerchantID: merchantID, AccountID: principal.AccountID,
 		ExternalID: in.ExternalID, Status: "started", Amount: in.Amount,
 		Currency: in.Currency, PaymentMethod: in.PaymentMethod, Description: in.Description,
-		CreationDate: now, ExpirationDate: in.ExpirationDate, Customer: in.Customer,
+		CreationDate: now, ExpirationDate: in.ExpirationDate, SuccessURL: in.SuccessURL, CancelURL: in.CancelURL, Customer: in.Customer,
 		Metadata: in.Metadata, Route: route, Version: 1,
 	}
 	provider, err := s.connector.CreatePayment(ctx, route, payment, in.SuccessURL, in.CancelURL)
@@ -98,6 +102,14 @@ func (s *Payments) Create(ctx context.Context, principal core.Principal, in core
 	}
 	completed = true
 	return payment, false, nil
+}
+
+func validReturnURL(value string) bool {
+	if value == "" {
+		return true
+	}
+	parsed, err := url.ParseRequestURI(value)
+	return err == nil && parsed.Host != "" && (parsed.Scheme == "https" || parsed.Scheme == "http") && parsed.User == nil
 }
 
 func (s *Payments) Get(ctx context.Context, principal core.Principal, transactionID string) (core.Payment, error) {

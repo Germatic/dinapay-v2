@@ -40,6 +40,8 @@ type Payment struct {
 	ExpirationDate    time.Time      `json:"expirationDate"`
 	ConfirmationDate  *time.Time     `json:"confirmationDate,omitempty"`
 	ActionURL         string         `json:"actionUrl"`
+	SuccessURL        string         `json:"-"`
+	CancelURL         string         `json:"-"`
 	Customer          Customer       `json:"customer,omitempty"`
 	Metadata          map[string]any `json:"metadata,omitempty"`
 	PaymentData       map[string]any `json:"paymentData"`
@@ -73,6 +75,8 @@ type CheckoutPayment struct {
 	Currency       string         `json:"currency"`
 	ExpirationDate time.Time      `json:"expirationDate"`
 	PaymentData    map[string]any `json:"paymentData"`
+	SuccessURL     string         `json:"-"`
+	CancelURL      string         `json:"-"`
 	Version        int64          `json:"resourceVersion"`
 }
 

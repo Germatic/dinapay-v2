@@ -59,9 +59,9 @@ func (s *Store) CompleteCreate(ctx context.Context, p core.Payment, event core.M
 	paymentData, _ := json.Marshal(p.PaymentData)
 	route, _ := json.Marshal(p.Route)
 	_, err = tx.Exec(ctx, `INSERT INTO dinapay_v2_payments
-      (transaction_id,account_id,merchant_id,external_id,status,amount,currency,payment_method,description,creation_date,expiration_date,action_url,customer,metadata,payment_data,provider_payment_id,provider_reference,route_decision,resource_version)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,NULLIF($9,''),$10,$11,$12,$13,$14,$15,$16,NULLIF($17,''),$18,$19)`,
-		p.TransactionID, p.AccountID, p.MerchantID, p.ExternalID, p.Status, p.Amount, p.Currency, p.PaymentMethod, p.Description, p.CreationDate, p.ExpirationDate, p.ActionURL, customer, metadata, paymentData, p.ProviderPaymentID, p.ProviderReference, route, p.Version)
+	  (transaction_id,account_id,merchant_id,external_id,status,amount,currency,payment_method,description,creation_date,expiration_date,action_url,success_url,cancel_url,customer,metadata,payment_data,provider_payment_id,provider_reference,route_decision,resource_version)
+	  VALUES ($1,$2,$3,$4,$5,$6,$7,$8,NULLIF($9,''),$10,$11,$12,NULLIF($13,''),NULLIF($14,''),$15,$16,$17,$18,NULLIF($19,''),$20,$21)`,
+		p.TransactionID, p.AccountID, p.MerchantID, p.ExternalID, p.Status, p.Amount, p.Currency, p.PaymentMethod, p.Description, p.CreationDate, p.ExpirationDate, p.ActionURL, p.SuccessURL, p.CancelURL, customer, metadata, paymentData, p.ProviderPaymentID, p.ProviderReference, route, p.Version)
 	if err != nil {
 		return err
 	}
@@ -101,9 +101,9 @@ func (s *Store) Get(ctx context.Context, accountID, merchantID, transactionID st
 func (s *Store) GetCheckoutPayment(ctx context.Context, transactionID string) (core.CheckoutPayment, error) {
 	var value core.CheckoutPayment
 	var paymentData []byte
-	err := s.db.QueryRow(ctx, `SELECT transaction_id::text,status,amount,currency,expiration_date,payment_data,resource_version
+	err := s.db.QueryRow(ctx, `SELECT transaction_id::text,status,amount,currency,expiration_date,payment_data,COALESCE(success_url,''),COALESCE(cancel_url,''),resource_version
       FROM dinapay_v2_payments WHERE transaction_id=$1`, transactionID).Scan(
-		&value.TransactionID, &value.Status, &value.Amount, &value.Currency, &value.ExpirationDate, &paymentData, &value.Version)
+		&value.TransactionID, &value.Status, &value.Amount, &value.Currency, &value.ExpirationDate, &paymentData, &value.SuccessURL, &value.CancelURL, &value.Version)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return value, core.ErrNotFound
 	}
@@ -117,9 +117,9 @@ func (s *Store) GetCheckoutPayment(ctx context.Context, transactionID string) (c
 func (s *Store) getV2(ctx context.Context, accountID, merchantID, transactionID string) (core.Payment, error) {
 	var p core.Payment
 	var customer, metadata, paymentData, pricing, route, failure, providerFailure []byte
-	err := s.db.QueryRow(ctx, `SELECT transaction_id::text,account_id,merchant_id,external_id,status,amount,COALESCE(received_amount,''),currency,payment_method,COALESCE(description,''),creation_date,expiration_date,confirmation_date,action_url,customer,metadata,payment_data,COALESCE(pricing,'{}'),provider_payment_id,COALESCE(provider_reference,''),route_decision,resource_version,failure,provider_failure
+	err := s.db.QueryRow(ctx, `SELECT transaction_id::text,account_id,merchant_id,external_id,status,amount,COALESCE(received_amount,''),currency,payment_method,COALESCE(description,''),creation_date,expiration_date,confirmation_date,action_url,COALESCE(success_url,''),COALESCE(cancel_url,''),customer,metadata,payment_data,COALESCE(pricing,'{}'),provider_payment_id,COALESCE(provider_reference,''),route_decision,resource_version,failure,provider_failure
       FROM dinapay_v2_payments WHERE transaction_id=$1 AND (($2<>'' AND merchant_id=$2) OR ($2='' AND $3<>'' AND account_id=$3))`, transactionID, merchantID, accountID).Scan(
-		&p.TransactionID, &p.AccountID, &p.MerchantID, &p.ExternalID, &p.Status, &p.Amount, &p.ReceivedAmount, &p.Currency, &p.PaymentMethod, &p.Description, &p.CreationDate, &p.ExpirationDate, &p.ConfirmationDate, &p.ActionURL, &customer, &metadata, &paymentData, &pricing, &p.ProviderPaymentID, &p.ProviderReference, &route, &p.Version, &failure, &providerFailure)
+		&p.TransactionID, &p.AccountID, &p.MerchantID, &p.ExternalID, &p.Status, &p.Amount, &p.ReceivedAmount, &p.Currency, &p.PaymentMethod, &p.Description, &p.CreationDate, &p.ExpirationDate, &p.ConfirmationDate, &p.ActionURL, &p.SuccessURL, &p.CancelURL, &customer, &metadata, &paymentData, &pricing, &p.ProviderPaymentID, &p.ProviderReference, &route, &p.Version, &failure, &providerFailure)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return p, core.ErrNotFound
 	}

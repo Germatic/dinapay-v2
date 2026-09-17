@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -14,6 +15,33 @@ type routerStub struct{}
 
 func (routerStub) Resolve(_ context.Context, r core.RouteRequest) (core.RouteDecision, error) {
 	return core.RouteDecision{RouteDecisionID: "route1", RequestID: r.RequestID, TransactionID: r.TransactionID, Status: "selected", ConnectorID: "connector-test", Provider: "test", ProviderConnectionID: "connection1"}, nil
+}
+
+func TestCreateValidatesAndPersistsReturnURLs(t *testing.T) {
+	auth := static.NewAuth("test-key=account1:merchant1")
+	store := memory.NewStore()
+	svc := NewPayments(routerStub{}, connectorStub{}, store, auth, "https://checkout.demo.dinaria.com")
+	in := core.CreatePayment{
+		ExternalID: "order-return", Amount: "1.00", Currency: "ARS", PaymentMethod: "qr",
+		Customer: core.Customer{"country": "AR"}, SuccessURL: "https://merchant.example/success?order=1", CancelURL: "https://merchant.example/cancel",
+	}
+	payment, _, err := svc.Create(context.Background(), core.Principal{MerchantID: "merchant1"}, in, "return-key")
+	if err != nil {
+		t.Fatal(err)
+	}
+	checkout, err := svc.Checkout(context.Background(), payment.TransactionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if checkout.SuccessURL != in.SuccessURL || checkout.CancelURL != in.CancelURL {
+		t.Fatalf("return URLs were not persisted: %#v", checkout)
+	}
+
+	in.ExternalID = "unsafe-return"
+	in.SuccessURL = "javascript:alert(1)"
+	if _, _, err = svc.Create(context.Background(), core.Principal{MerchantID: "merchant1"}, in, "unsafe-return-key"); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("unsafe return URL error = %v", err)
+	}
 }
 
 type connectorStub struct{}

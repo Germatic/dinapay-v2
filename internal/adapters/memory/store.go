@@ -109,7 +109,7 @@ func (s *Store) GetCheckoutPayment(_ context.Context, transactionID string) (cor
 	if !ok {
 		return core.CheckoutPayment{}, core.ErrNotFound
 	}
-	return core.CheckoutPayment{TransactionID: p.TransactionID, Status: p.Status, Amount: p.Amount, Currency: p.Currency, ExpirationDate: p.ExpirationDate, PaymentData: p.PaymentData, Version: p.Version}, nil
+	return core.CheckoutPayment{TransactionID: p.TransactionID, Status: p.Status, Amount: p.Amount, Currency: p.Currency, ExpirationDate: p.ExpirationDate, PaymentData: p.PaymentData, SuccessURL: p.SuccessURL, CancelURL: p.CancelURL, Version: p.Version}, nil
 }
 
 func (s *Store) ApplyProviderEvent(_ context.Context, event core.ProviderEvent, _ string) (core.EventResult, error) {

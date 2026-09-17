@@ -24,6 +24,7 @@ func TestHostedCheckoutRendersSafeQRAndMinimalStatus(t *testing.T) {
 		TransactionID: transactionID, AccountID: "account-1", MerchantID: "merchant-1", ExternalID: "private-order",
 		Status: "started", Amount: "150.00", Currency: "ARS", PaymentMethod: "qr", CreationDate: time.Now().UTC(),
 		ExpirationDate: time.Now().UTC().Add(15 * time.Minute), Customer: core.Customer{"email": "private@example.com"}, Version: 1,
+		SuccessURL: "https://merchant.example/success", CancelURL: "https://merchant.example/cancel",
 		PaymentData:       map[string]any{"type": "qr", "qr": map[string]any{"imageBase64": "iVBORw0KGgo="}},
 		ProviderPaymentID: "private-provider-id",
 	}
@@ -40,6 +41,9 @@ func TestHostedCheckoutRendersSafeQRAndMinimalStatus(t *testing.T) {
 	}
 	if strings.Contains(page.Body.String(), "private@example.com") || strings.Contains(page.Body.String(), "private-provider-id") || page.Header().Get("Content-Security-Policy") == "" {
 		t.Fatalf("checkout leaked private data or omitted CSP")
+	}
+	if !strings.Contains(page.Body.String(), `id="success-return"`) || !strings.Contains(page.Body.String(), `id="cancel-return"`) || !strings.Contains(page.Body.String(), "location.assign(successReturn.href)") {
+		t.Fatalf("checkout omitted safe return behavior: %s", page.Body.String())
 	}
 	publicPage := httptest.NewRecorder()
 	handler.ServeHTTP(publicPage, httptest.NewRequest(http.MethodGet, "/v2/pay/"+transactionID, nil))
