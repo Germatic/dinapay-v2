@@ -81,6 +81,45 @@ func TestPayoutDebitsBeforeProvider(t *testing.T) {
 	}
 }
 
+func TestCreateMobilePayoutRequiresCorridorFieldsBeforeRouting(t *testing.T) {
+	base := core.CreatePayout{
+		ExternalID: "mobile-1", Source: core.Money{Amount: "1.00", Currency: "USD"},
+		Destination: core.PayoutDestination{
+			Country: "VE", Currency: "VES",
+			Beneficiary: map[string]any{"firstName": "Maria", "lastName": "Gonzalez", "mobile": "04225786563", "documentNumber": "V40001469"},
+			Rail:        map[string]any{"type": "ve_mobile_payment", "bankCode": "0102"},
+		},
+	}
+	cases := []struct {
+		name   string
+		mutate func(*core.CreatePayout)
+	}{
+		{name: "bank code", mutate: func(p *core.CreatePayout) { delete(p.Destination.Rail, "bankCode") }},
+		{name: "mobile", mutate: func(p *core.CreatePayout) { delete(p.Destination.Beneficiary, "mobile") }},
+		{name: "beneficiary document", mutate: func(p *core.CreatePayout) { delete(p.Destination.Beneficiary, "documentNumber") }},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			input := base
+			input.Destination.Rail = cloneMap(base.Destination.Rail)
+			input.Destination.Beneficiary = cloneMap(base.Destination.Beneficiary)
+			tc.mutate(&input)
+			svc := NewPayouts(nil, nil, nil, nil, nil)
+			if _, _, err := svc.Create(context.Background(), core.Principal{}, "key", input); !errors.Is(err, ErrInvalid) {
+				t.Fatalf("error=%v", err)
+			}
+		})
+	}
+}
+
+func cloneMap(value map[string]any) map[string]any {
+	cloned := make(map[string]any, len(value))
+	for key, item := range value {
+		cloned[key] = item
+	}
+	return cloned
+}
+
 func TestPayoutDebitsAndCompensatesTotalIncludingFee(t *testing.T) {
 	store := &payoutStoreStub{}
 	ledger := &payoutLedgerStub{}
