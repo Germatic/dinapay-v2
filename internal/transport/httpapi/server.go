@@ -46,6 +46,8 @@ func NewWithDashboardReader(payments *app.Payments, refunds *app.Refunds, payout
 	mux.HandleFunc("GET /ready", func(w http.ResponseWriter, _ *http.Request) { writeJSON(w, 200, map[string]string{"status": "ready"}) })
 	mux.HandleFunc("GET /pay/{transactionId}", s.checkoutPage)
 	mux.HandleFunc("GET /public/v1/checkout/payments/{transactionId}/status", s.checkoutStatus)
+	mux.HandleFunc("GET /v2/pay/{transactionId}", s.checkoutPage)
+	mux.HandleFunc("GET /v2/public/v1/checkout/payments/{transactionId}/status", s.checkoutStatus)
 	mux.Handle("GET /metrics", internalOnly(observability.Handler()))
 	mux.HandleFunc("POST /v2/payments", s.create)
 	mux.HandleFunc("GET /v2/payments", s.list)

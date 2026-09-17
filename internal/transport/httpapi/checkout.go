@@ -45,7 +45,7 @@ func (s *Server) checkoutPage(w http.ResponseWriter, r *http.Request) {
 	nonce := checkoutNonce()
 	page := checkoutPage{
 		TransactionID: payment.TransactionID,
-		StatusURL:     "/public/v1/checkout/payments/" + payment.TransactionID + "/status",
+		StatusURL:     strings.TrimSuffix(r.URL.Path, "/pay/"+payment.TransactionID) + "/public/v1/checkout/payments/" + payment.TransactionID + "/status",
 		Status:        payment.Status,
 		Amount:        payment.Amount,
 		Currency:      payment.Currency,

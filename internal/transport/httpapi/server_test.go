@@ -41,6 +41,11 @@ func TestHostedCheckoutRendersSafeQRAndMinimalStatus(t *testing.T) {
 	if strings.Contains(page.Body.String(), "private@example.com") || strings.Contains(page.Body.String(), "private-provider-id") || page.Header().Get("Content-Security-Policy") == "" {
 		t.Fatalf("checkout leaked private data or omitted CSP")
 	}
+	publicPage := httptest.NewRecorder()
+	handler.ServeHTTP(publicPage, httptest.NewRequest(http.MethodGet, "/v2/pay/"+transactionID, nil))
+	if publicPage.Code != http.StatusOK || !strings.Contains(publicPage.Body.String(), "/v2/public/v1/checkout/payments/"+transactionID+"/status") {
+		t.Fatalf("prefixed checkout status=%d body=%s", publicPage.Code, publicPage.Body.String())
+	}
 
 	status := httptest.NewRecorder()
 	handler.ServeHTTP(status, httptest.NewRequest(http.MethodGet, "/public/v1/checkout/payments/"+transactionID+"/status", nil))
