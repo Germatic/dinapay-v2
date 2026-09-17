@@ -3,6 +3,7 @@ package httpapi
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -10,6 +11,27 @@ import (
 
 	"github.com/Germatic/dinapay-v2/internal/core"
 )
+
+func TestMapErrorSanitizesDependencyFailure(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	recorder.Header().Set("X-Request-Id", "request-123")
+
+	mapError(recorder, errors.New(`create provider payment: upstream status 503: {"provider":"secret detail"}`))
+
+	if recorder.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	var body map[string]any
+	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body["code"] != "dependency_unavailable" || body["message"] != "The requested service is temporarily unavailable." || body["requestId"] != "request-123" {
+		t.Fatalf("unexpected response: %s", recorder.Body.String())
+	}
+	if strings.Contains(recorder.Body.String(), "provider") || strings.Contains(recorder.Body.String(), "secret detail") {
+		t.Fatalf("internal upstream detail leaked: %s", recorder.Body.String())
+	}
+}
 
 type dashboardReaderStub struct {
 	accountID      string

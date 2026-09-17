@@ -612,7 +612,9 @@ func mapError(w http.ResponseWriter, err error) {
 	case errors.Is(err, app.ErrUnsupported):
 		writeError(w, 422, "refund_not_supported", err.Error())
 	default:
-		writeError(w, 503, "dependency_unavailable", err.Error())
+		requestID := w.Header().Get("X-Request-Id")
+		slog.Error("request dependency unavailable", "error", err, "request_id", requestID)
+		writeError(w, 503, "dependency_unavailable", "The requested service is temporarily unavailable.")
 	}
 }
 func writeError(w http.ResponseWriter, status int, code, message string) {
