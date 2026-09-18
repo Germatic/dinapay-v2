@@ -75,6 +75,22 @@ func TestCreateIsIdempotent(t *testing.T) {
 	}
 }
 
+func TestCreateValidatesReusableCollectionKey(t *testing.T) {
+	svc := NewPayments(routerStub{}, connectorStub{}, memory.NewStore(), static.NewAuth("test-key=account1:merchant1"), "https://checkout.demo.dinaria.com")
+	base := core.CreatePayment{ExternalID: "reusable-1", Amount: "10.00", Currency: "MXN", PaymentMethod: "bank_transfer", DestinationMode: "reusable", Customer: core.Customer{"country": "MX"}}
+	if _, _, err := svc.Create(context.Background(), core.Principal{MerchantID: "merchant1"}, base, "missing-key"); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("missing collectionKey error=%v", err)
+	}
+	base.CollectionKey = "customer with spaces"
+	if _, _, err := svc.Create(context.Background(), core.Principal{MerchantID: "merchant1"}, base, "invalid-key"); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("invalid collectionKey error=%v", err)
+	}
+	base.CollectionKey = "customer-123"
+	if _, _, err := svc.Create(context.Background(), core.Principal{MerchantID: "merchant1"}, base, "valid-key"); err != nil {
+		t.Fatalf("valid collectionKey error=%v", err)
+	}
+}
+
 func TestCreateUsesProviderRedirectWhenCheckoutIsNotConfigured(t *testing.T) {
 	auth := static.NewAuth("test-key=account1:merchant1")
 	svc := NewPayments(routerStub{}, connectorStub{}, memory.NewStore(), auth, "")

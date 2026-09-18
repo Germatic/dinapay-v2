@@ -17,6 +17,7 @@ type CreatePayment struct {
 	PaymentMethod   string
 	Rail            string
 	DestinationMode string
+	CollectionKey   string
 	Description     string
 	Customer        Customer
 	SuccessURL      string
@@ -35,6 +36,7 @@ type Payment struct {
 	ReceivedAmount    string         `json:"receivedAmount,omitempty"`
 	Currency          string         `json:"currency"`
 	PaymentMethod     string         `json:"paymentMethod"`
+	CollectionKey     string         `json:"-"`
 	Description       string         `json:"description,omitempty"`
 	CreationDate      time.Time      `json:"creationDate"`
 	ExpirationDate    time.Time      `json:"expirationDate"`

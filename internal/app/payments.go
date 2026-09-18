@@ -13,6 +13,18 @@ import (
 	"github.com/Germatic/dinapay-v2/internal/core"
 )
 
+func validCollectionKey(value string) bool {
+	if value == "" || len(value) > 128 {
+		return false
+	}
+	for _, c := range value {
+		if (c < 'a' || c > 'z') && (c < 'A' || c > 'Z') && (c < '0' || c > '9') && c != '.' && c != '_' && c != ':' && c != '-' {
+			return false
+		}
+	}
+	return true
+}
+
 type Payments struct {
 	router       core.Router
 	connector    core.Connector
@@ -28,6 +40,9 @@ func NewPayments(router core.Router, connector core.Connector, store core.Paymen
 
 func (s *Payments) Create(ctx context.Context, principal core.Principal, in core.CreatePayment, idempotencyKey string) (core.Payment, bool, error) {
 	if strings.TrimSpace(idempotencyKey) == "" || in.ExternalID == "" || in.Amount == "" || in.Currency == "" || in.PaymentMethod == "" || len(in.Customer) == 0 {
+		return core.Payment{}, false, ErrInvalid
+	}
+	if (in.DestinationMode == "reusable" && !validCollectionKey(in.CollectionKey)) || (in.DestinationMode != "reusable" && in.CollectionKey != "") {
 		return core.Payment{}, false, ErrInvalid
 	}
 	if !validReturnURL(in.SuccessURL) || !validReturnURL(in.CancelURL) {
@@ -68,7 +83,8 @@ func (s *Payments) Create(ctx context.Context, principal core.Principal, in core
 		TransactionID: txID, MerchantID: merchantID, AccountID: principal.AccountID,
 		ExternalID: in.ExternalID, Status: "started", Amount: in.Amount,
 		Currency: in.Currency, PaymentMethod: in.PaymentMethod, Description: in.Description,
-		CreationDate: now, ExpirationDate: in.ExpirationDate, SuccessURL: in.SuccessURL, CancelURL: in.CancelURL, Customer: in.Customer,
+		CollectionKey: in.CollectionKey,
+		CreationDate:  now, ExpirationDate: in.ExpirationDate, SuccessURL: in.SuccessURL, CancelURL: in.CancelURL, Customer: in.Customer,
 		Metadata: in.Metadata, Route: route, Version: 1,
 	}
 	provider, err := s.connector.CreatePayment(ctx, route, payment, in.SuccessURL, in.CancelURL)

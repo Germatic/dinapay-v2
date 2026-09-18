@@ -107,6 +107,13 @@ func TestHostedCheckoutRendersSingleUseBankTransferWithoutReference(t *testing.T
 	}
 }
 
+func TestCheckoutBankDetailsMarksReusableDestination(t *testing.T) {
+	details := checkoutBankDetails(map[string]any{"type": "bank_transfer", "bankTransfer": map[string]any{"rail": "spei", "destinationMode": "reusable", "accountIdentifier": map[string]any{"type": "clabe", "value": "646180157034181180"}}})
+	if details == nil || !details.Reusable || details.SingleUse || details.AccountLabel != "CLABE" {
+		t.Fatalf("details=%#v", details)
+	}
+}
+
 func TestMapErrorSanitizesDependencyFailure(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	recorder.Header().Set("X-Request-Id", "request-123")

@@ -53,6 +53,9 @@ func (c *Connectors) CreatePayment(ctx context.Context, route core.RouteDecision
 		"rail": route.Rail, "destinationMode": route.DestinationMode,
 		"customer": p.Customer,
 	}
+	if p.CollectionKey != "" {
+		command["collectionKey"] = p.CollectionKey
+	}
 	if p.Description != "" {
 		command["description"] = p.Description
 	}
@@ -219,6 +222,15 @@ func postJSON(ctx context.Context, client *http.Client, url, token, idempotencyK
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 		err := fmt.Errorf("upstream status %d: %s", resp.StatusCode, b)
+		var problem struct {
+			Error struct {
+				Code string `json:"code"`
+			} `json:"error"`
+		}
+		_ = json.Unmarshal(b, &problem)
+		if resp.StatusCode == http.StatusConflict && problem.Error.Code == "destination_in_use" {
+			return fmt.Errorf("%w: %v", core.ErrDestinationInUse, err)
+		}
 		if resp.StatusCode == http.StatusBadRequest || resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden || resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusConflict || resp.StatusCode == http.StatusUnprocessableEntity {
 			return fmt.Errorf("%w: %v", core.ErrProviderRejected, err)
 		}

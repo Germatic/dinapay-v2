@@ -14,6 +14,7 @@ var (
 	ErrUnsupported         = errors.New("operation not supported")
 	ErrInsufficientBalance = errors.New("insufficient balance")
 	ErrProviderRejected    = errors.New("provider rejected request")
+	ErrDestinationInUse    = errors.New("reusable destination already has an open payment")
 )
 
 type ValidationError struct {

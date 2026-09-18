@@ -536,6 +536,7 @@ type createRequest struct {
 	PaymentMethod   string         `json:"paymentMethod"`
 	Rail            string         `json:"rail"`
 	DestinationMode string         `json:"destinationMode"`
+	CollectionKey   string         `json:"collectionKey"`
 	Description     string         `json:"description"`
 	Customer        core.Customer  `json:"customer"`
 	SuccessURL      string         `json:"successUrl"`
@@ -558,7 +559,7 @@ func (s *Server) create(w http.ResponseWriter, r *http.Request) {
 	}
 	result, replayed, err := s.payments.Create(r.Context(), p, core.CreatePayment{
 		MerchantID: req.MerchantID, AccountID: p.AccountID, ExternalID: req.ExternalID, Amount: req.Amount,
-		Currency: req.Currency, PaymentMethod: req.PaymentMethod, Rail: req.Rail, DestinationMode: req.DestinationMode, Description: req.Description,
+		Currency: req.Currency, PaymentMethod: req.PaymentMethod, Rail: req.Rail, DestinationMode: req.DestinationMode, CollectionKey: req.CollectionKey, Description: req.Description,
 		Customer: req.Customer, SuccessURL: req.SuccessURL, CancelURL: req.CancelURL,
 		ExpirationDate: req.ExpirationDate, Metadata: req.Metadata,
 	}, r.Header.Get("Idempotency-Key"))
@@ -614,6 +615,8 @@ func mapError(w http.ResponseWriter, err error) {
 		writeError(w, 404, "not_found", err.Error())
 	case errors.Is(err, app.ErrConflict):
 		writeError(w, 409, "idempotency_conflict", err.Error())
+	case errors.Is(err, app.ErrDestinationInUse):
+		writeError(w, 409, "destination_in_use", "The reusable destination already has an open payment.")
 	case errors.Is(err, app.ErrInProgress):
 		writeError(w, 409, "operation_in_progress", err.Error())
 	case errors.Is(err, app.ErrUnsupported):
