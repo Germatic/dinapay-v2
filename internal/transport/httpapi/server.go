@@ -237,6 +237,7 @@ func dashboardPaymentPage(page core.PaymentPage) map[string]any {
 		_ = json.Unmarshal(encoded, &item)
 		item["accountId"] = payment.AccountID
 		item["merchantId"] = payment.MerchantID
+		item["origin"] = payment.Origin
 		data = append(data, item)
 	}
 	response := map[string]any{"data": data, "hasMore": page.HasMore}
@@ -254,6 +255,7 @@ func dashboardPayoutPage(page core.PayoutPage) map[string]any {
 		_ = json.Unmarshal(encoded, &item)
 		item["accountId"] = payout.AccountID
 		item["merchantId"] = payout.MerchantID
+		item["origin"] = payout.Origin
 		data = append(data, item)
 	}
 	response := map[string]any{"data": data, "hasMore": page.HasMore}

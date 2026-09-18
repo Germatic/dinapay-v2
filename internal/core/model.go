@@ -168,6 +168,7 @@ type Payout struct {
 	ResourceVersion   int64             `json:"-"`
 	NextAttemptAt     time.Time         `json:"-"`
 	OperationalStatus string            `json:"-"`
+	Origin            string            `json:"-"`
 }
 
 type PayoutListOptions struct {

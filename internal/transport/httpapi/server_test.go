@@ -219,7 +219,7 @@ func TestDashboardPaymentReadUsesDedicatedCredentialAndFilters(t *testing.T) {
 
 func TestDashboardRowsExposeScopeOnlyOnInternalRead(t *testing.T) {
 	reader := &dashboardReaderStub{}
-	readerResult := core.PaymentPage{Data: []core.Payment{{TransactionID: "tx-1", AccountID: "account-1", MerchantID: "merchant-1", Status: "confirmed", Amount: "1.00", Currency: "USD"}}}
+	readerResult := core.PaymentPage{Data: []core.Payment{{TransactionID: "tx-1", AccountID: "account-1", MerchantID: "merchant-1", Status: "confirmed", Amount: "1.00", Currency: "USD", Origin: "v1"}}}
 	readerWithResult := &dashboardResultStub{dashboardReaderStub: *reader, paymentPage: readerResult}
 	h := NewWithDashboardReader(nil, nil, nil, nil, nil, "service-secret", readerWithResult, "dashboard-secret")
 	req := httptest.NewRequest(http.MethodGet, "/internal/v1/dashboard/payments", nil)
@@ -232,8 +232,13 @@ func TestDashboardRowsExposeScopeOnlyOnInternalRead(t *testing.T) {
 	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
 		t.Fatal(err)
 	}
-	if len(body.Data) != 1 || body.Data[0]["accountId"] != "account-1" || body.Data[0]["merchantId"] != "merchant-1" {
+	if len(body.Data) != 1 || body.Data[0]["accountId"] != "account-1" || body.Data[0]["merchantId"] != "merchant-1" || body.Data[0]["origin"] != "v1" {
 		t.Fatalf("scope missing from dashboard row: %s", recorder.Body.String())
+	}
+	payoutPage := dashboardPayoutPage(core.PayoutPage{Data: []core.Payout{{PayoutID: "po-1", AccountID: "account-1", MerchantID: "merchant-1", Origin: "v2"}}})
+	payout := payoutPage["data"].([]map[string]any)[0]
+	if payout["origin"] != "v2" {
+		t.Fatalf("payout origin missing: %#v", payout)
 	}
 }
 
