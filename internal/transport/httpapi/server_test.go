@@ -67,6 +67,43 @@ func TestHostedCheckoutRendersSafeQRAndMinimalStatus(t *testing.T) {
 	}
 }
 
+func TestHostedCheckoutRendersSingleUseBankTransferWithoutReference(t *testing.T) {
+	const transactionID = "72758000-1200-4000-8220-000000000001"
+	store := memory.NewStore()
+	_, _, _ = store.BeginCreate(context.Background(), "merchant-1", "bank-checkout", "hash", transactionID)
+	payment := core.Payment{
+		TransactionID: transactionID, AccountID: "account-1", MerchantID: "merchant-1", ExternalID: "order-1",
+		Status: "started", Amount: "80.00", Currency: "MXN", PaymentMethod: "bank_transfer", CreationDate: time.Now().UTC(),
+		ExpirationDate: time.Now().UTC().Add(12 * time.Hour), Version: 1,
+		PaymentData: map[string]any{
+			"type": "bank_transfer",
+			"bankTransfer": map[string]any{
+				"rail": "spei", "destinationMode": "single_use",
+				"accountIdentifier": map[string]any{"type": "clabe", "value": "727580001200000220"},
+				"transferReference": "internal-reference-not-for-payer",
+			},
+		},
+	}
+	if err := store.CompleteCreate(context.Background(), payment, core.MerchantEvent{EventID: "event-bank"}, "bank-checkout"); err != nil {
+		t.Fatal(err)
+	}
+	payments := app.NewPayments(nil, nil, store, static.NewAuth("key=account-1:merchant-1"), "https://checkout.example")
+	handler := New(payments, nil, nil, nil, static.NewAuth("key=account-1:merchant-1"), "service-token")
+
+	page := httptest.NewRecorder()
+	handler.ServeHTTP(page, httptest.NewRequest(http.MethodGet, "/pay/"+transactionID, nil))
+	body := page.Body.String()
+	if page.Code != http.StatusOK || !strings.Contains(body, "CLABE de un solo uso") || !strings.Contains(body, "727580001200000220") || !strings.Contains(body, "por SPEI") {
+		t.Fatalf("status=%d body=%s", page.Code, body)
+	}
+	if !strings.Contains(body, "importe exacto") || !strings.Contains(body, "no la reutilices") || !strings.Contains(body, `data-copy="bank-account"`) {
+		t.Fatalf("checkout omitted single-use guidance: %s", body)
+	}
+	if strings.Contains(body, "internal-reference-not-for-payer") || strings.Contains(body, "transferReference") {
+		t.Fatalf("checkout exposed an unnecessary transfer reference: %s", body)
+	}
+}
+
 func TestMapErrorSanitizesDependencyFailure(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	recorder.Header().Set("X-Request-Id", "request-123")
