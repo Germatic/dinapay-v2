@@ -99,6 +99,9 @@ func TestHostedCheckoutRendersSingleUseBankTransferWithoutReference(t *testing.T
 	if !strings.Contains(body, "importe exacto") || !strings.Contains(body, "no la reutilices") || !strings.Contains(body, `data-copy="bank-account"`) {
 		t.Fatalf("checkout omitted single-use guidance: %s", body)
 	}
+	if !strings.Contains(body, `data-copy-value="80.00"`) || !strings.Contains(body, "Copiar monto") {
+		t.Fatalf("checkout omitted numeric amount copy action: %s", body)
+	}
 	if strings.Contains(body, "internal-reference-not-for-payer") || strings.Contains(body, "transferReference") {
 		t.Fatalf("checkout exposed an unnecessary transfer reference: %s", body)
 	}
