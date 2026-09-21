@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -75,6 +76,79 @@ func TestCreateIsIdempotent(t *testing.T) {
 	}
 }
 
+func TestCreateValidatesAmountFormatBeforeDependencies(t *testing.T) {
+	svc := NewPayments(routerStub{}, connectorStub{}, memory.NewStore(), static.NewAuth("test-key=account1:merchant1"), "")
+	base := core.CreatePayment{ExternalID: "amount-test", Amount: "1.00", Currency: "ARS", PaymentMethod: "qr", Customer: core.Customer{"country": "AR"}}
+	for _, amount := range []string{"0", "0.00", "-1.00", "abc", "1.001", "1.", ".50", "1e2"} {
+		input := base
+		input.Amount = amount
+		_, _, err := svc.Create(context.Background(), core.Principal{MerchantID: "merchant1"}, input, "amount-"+amount)
+		var validation *core.ValidationError
+		if !errors.As(err, &validation) || validation.Field != "amount" || validation.Rule != "format" {
+			t.Fatalf("amount %q error=%#v", amount, err)
+		}
+	}
+	for index, amount := range []string{"1", "1.0", "1.00", "1000000000.99"} {
+		input := base
+		input.ExternalID = amount
+		input.Amount = amount
+		if _, _, err := svc.Create(context.Background(), core.Principal{MerchantID: "merchant1"}, input, fmt.Sprintf("valid-amount-%d", index)); err != nil {
+			t.Fatalf("valid amount %q error=%v", amount, err)
+		}
+	}
+}
+
+func TestCreateValidatesArgentinaQRDocumentFormatWhenPresent(t *testing.T) {
+	svc := NewPayments(routerStub{}, connectorStub{}, memory.NewStore(), static.NewAuth("test-key=account1:merchant1"), "")
+	base := core.CreatePayment{ExternalID: "document-test", Amount: "1.00", Currency: "ARS", PaymentMethod: "qr", Customer: core.Customer{"country": "AR", "documentType": "DNI", "documentNumber": "ABC"}}
+	_, _, err := svc.Create(context.Background(), core.Principal{MerchantID: "merchant1"}, base, "invalid-document")
+	var validation *core.ValidationError
+	if !errors.As(err, &validation) || validation.Field != "customer.documentNumber" || validation.Rule != "format" {
+		t.Fatalf("document error=%#v", err)
+	}
+	base.ExternalID = "valid-dni"
+	base.Customer["documentNumber"] = "12345678"
+	if _, _, err := svc.Create(context.Background(), core.Principal{MerchantID: "merchant1"}, base, "valid-dni"); err != nil {
+		t.Fatalf("valid DNI error=%v", err)
+	}
+	base.ExternalID = "valid-cuit"
+	base.Customer["documentType"] = "CUIT"
+	base.Customer["documentNumber"] = "20123456789"
+	if _, _, err := svc.Create(context.Background(), core.Principal{MerchantID: "merchant1"}, base, "valid-cuit"); err != nil {
+		t.Fatalf("valid CUIT error=%v", err)
+	}
+}
+
+func TestCreateRejectsDuplicateExternalIDWithDifferentKey(t *testing.T) {
+	store := memory.NewStore()
+	svc := NewPayments(routerStub{}, connectorStub{}, store, static.NewAuth("test-key=account1:merchant1"), "")
+	in := core.CreatePayment{ExternalID: "merchant-order-1", Amount: "1.00", Currency: "ARS", PaymentMethod: "qr", Customer: core.Customer{"country": "AR"}}
+	if _, _, err := svc.Create(context.Background(), core.Principal{MerchantID: "merchant1"}, in, "key-1"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := svc.Create(context.Background(), core.Principal{MerchantID: "merchant1"}, in, "key-2"); !errors.Is(err, core.ErrExternalIDConflict) {
+		t.Fatalf("duplicate externalId error=%v", err)
+	}
+	if _, _, err := svc.Create(context.Background(), core.Principal{MerchantID: "merchant2"}, in, "key-2"); err != nil {
+		t.Fatalf("externalId must be scoped by merchant: %v", err)
+	}
+}
+
+func TestListFiltersStatusAndExternalID(t *testing.T) {
+	store := memory.NewStore()
+	svc := NewPayments(routerStub{}, connectorStub{}, store, static.NewAuth("test-key=account1:merchant1"), "")
+	for index, externalID := range []string{"order-a", "order-b"} {
+		in := core.CreatePayment{ExternalID: externalID, Amount: "1.00", Currency: "ARS", PaymentMethod: "qr", Customer: core.Customer{"country": "AR"}}
+		if _, _, err := svc.Create(context.Background(), core.Principal{MerchantID: "merchant1"}, in, fmt.Sprintf("list-key-%d", index)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	page, err := svc.List(context.Background(), core.Principal{MerchantID: "merchant1"}, core.PaymentListOptions{Status: "started", ExternalID: "order-b", Limit: 10})
+	if err != nil || len(page.Data) != 1 || page.Data[0].ExternalID != "order-b" {
+		t.Fatalf("page=%#v err=%v", page, err)
+	}
+}
+
 func TestCreateValidatesReusableCollectionKey(t *testing.T) {
 	svc := NewPayments(routerStub{}, connectorStub{}, memory.NewStore(), static.NewAuth("test-key=account1:merchant1"), "https://checkout.demo.dinaria.com")
 	base := core.CreatePayment{ExternalID: "reusable-1", Amount: "10.00", Currency: "MXN", PaymentMethod: "bank_transfer", DestinationMode: "reusable", Customer: core.Customer{"country": "MX"}}
@@ -120,7 +194,7 @@ func TestCreateUsesConfiguredDinariaCheckout(t *testing.T) {
 func TestLegacyReadUsesStandardCheckoutURL(t *testing.T) {
 	store := memory.NewStore()
 	// CompleteCreate is used only to seed the in-memory repository for this read test.
-	_, _, _ = store.BeginCreate(context.Background(), "merchant1", "legacy", "hash", "legacy-id")
+	_, _, _ = store.BeginCreate(context.Background(), "merchant1", "legacy", "hash", "legacy-id", "legacy-external")
 	_ = store.CompleteCreate(context.Background(), core.Payment{TransactionID: "legacy-id", MerchantID: "merchant1", Origin: "v1", ActionURL: "https://provider.example/pay"}, core.MerchantEvent{EventID: "e1"}, "legacy")
 	svc := NewPayments(routerStub{}, connectorStub{}, store, static.NewAuth("test-key=account1:merchant1"), "https://checkout.demo.dinaria.com")
 	p, err := svc.Get(context.Background(), core.Principal{MerchantID: "merchant1"}, "legacy-id")

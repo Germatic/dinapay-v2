@@ -9,6 +9,8 @@ CREATE TABLE IF NOT EXISTS dinapay_v2_idempotency (
   PRIMARY KEY (merchant_id, idempotency_key)
 );
 
+ALTER TABLE dinapay_v2_idempotency ADD COLUMN IF NOT EXISTS external_id TEXT;
+
 CREATE TABLE IF NOT EXISTS dinapay_v2_payments (
   transaction_id       UUID        PRIMARY KEY,
   account_id           TEXT        NOT NULL,
@@ -46,6 +48,32 @@ ALTER TABLE dinapay_v2_payments ADD COLUMN IF NOT EXISTS failure JSONB;
 ALTER TABLE dinapay_v2_payments ADD COLUMN IF NOT EXISTS provider_failure JSONB;
 ALTER TABLE dinapay_v2_payments ADD COLUMN IF NOT EXISTS success_url TEXT;
 ALTER TABLE dinapay_v2_payments ADD COLUMN IF NOT EXISTS cancel_url TEXT;
+
+-- Preserve all historical payments, including any pre-existing duplicate
+-- externalId values, while reserving one representative of every historical
+-- merchant-scoped identifier. New creates always populate external_id and the
+-- unique index prevents duplicate business orders even with concurrent keys.
+WITH ranked_external_ids AS (
+  SELECT i.merchant_id, i.idempotency_key, p.external_id,
+         row_number() OVER (
+           PARTITION BY i.merchant_id, p.external_id
+           ORDER BY p.creation_date, p.transaction_id
+         ) AS position
+  FROM dinapay_v2_idempotency i
+  JOIN dinapay_v2_payments p ON p.transaction_id=i.transaction_id
+  WHERE p.external_id<>''
+)
+UPDATE dinapay_v2_idempotency i
+SET external_id=ranked.external_id
+FROM ranked_external_ids ranked
+WHERE i.merchant_id=ranked.merchant_id
+  AND i.idempotency_key=ranked.idempotency_key
+  AND ranked.position=1
+  AND i.external_id IS NULL;
+
+CREATE UNIQUE INDEX IF NOT EXISTS dinapay_v2_idempotency_merchant_external_uidx
+  ON dinapay_v2_idempotency (merchant_id,external_id)
+  WHERE external_id IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS dinapay_v2_provider_events (
   event_id       TEXT        PRIMARY KEY,

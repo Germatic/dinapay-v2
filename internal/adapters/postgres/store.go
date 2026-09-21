@@ -10,6 +10,7 @@ import (
 	contract "github.com/Germatic/dinapay-contracts/go/connectorcontract/failures"
 	"github.com/Germatic/dinapay-v2/internal/core"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -24,11 +25,16 @@ func (s *Store) Migrate(ctx context.Context) error {
 	return err
 }
 
-func (s *Store) BeginCreate(ctx context.Context, merchantID, key, hash, transactionID string) (core.Payment, bool, error) {
+func (s *Store) BeginCreate(ctx context.Context, merchantID, key, hash, transactionID, externalID string) (core.Payment, bool, error) {
 	tag, err := s.db.Exec(ctx, `INSERT INTO dinapay_v2_idempotency
-      (merchant_id,idempotency_key,request_hash,transaction_id,status)
-      VALUES ($1,$2,$3,$4,'pending') ON CONFLICT DO NOTHING`, merchantID, key, hash, transactionID)
+      (merchant_id,idempotency_key,request_hash,transaction_id,status,external_id)
+      VALUES ($1,$2,$3,$4,'pending',$5)
+      ON CONFLICT (merchant_id,idempotency_key) DO NOTHING`, merchantID, key, hash, transactionID, externalID)
 	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" && pgErr.ConstraintName == "dinapay_v2_idempotency_merchant_external_uidx" {
+			return core.Payment{}, false, core.ErrExternalIDConflict
+		}
 		return core.Payment{}, false, err
 	}
 	if tag.RowsAffected() == 1 {

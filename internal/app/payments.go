@@ -7,11 +7,53 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"regexp"
 	"strings"
 	"time"
 
 	"github.com/Germatic/dinapay-v2/internal/core"
 )
+
+var paymentAmountPattern = regexp.MustCompile(`^[0-9]+(?:\.[0-9]{1,2})?$`)
+var argentinaDocumentPatterns = map[string]*regexp.Regexp{
+	"DNI":  regexp.MustCompile(`^[0-9]{7,8}$`),
+	"CUIT": regexp.MustCompile(`^[0-9]{11}$`),
+	"CUIL": regexp.MustCompile(`^[0-9]{11}$`),
+}
+
+func validPaymentAmount(value string) bool {
+	if !paymentAmountPattern.MatchString(value) {
+		return false
+	}
+	for _, r := range value {
+		if r >= '1' && r <= '9' {
+			return true
+		}
+	}
+	return false
+}
+
+func validatePaymentFormats(in core.CreatePayment) error {
+	if !validPaymentAmount(in.Amount) {
+		return &core.ValidationError{Field: "amount", Rule: "format", Message: "amount must be a positive decimal with at most two fractional digits"}
+	}
+	if !strings.EqualFold(in.PaymentMethod, "qr") || !strings.EqualFold(in.Currency, "ARS") {
+		return nil
+	}
+	documentNumber, numberPresent := in.Customer["documentNumber"]
+	if !numberPresent || documentNumber == nil || strings.TrimSpace(fmt.Sprint(documentNumber)) == "" {
+		return nil
+	}
+	number, ok := documentNumber.(string)
+	if !ok {
+		return &core.ValidationError{Field: "customer.documentNumber", Rule: "format", Message: "customer.documentNumber must be a string"}
+	}
+	documentType, _ := in.Customer["documentType"].(string)
+	if pattern, known := argentinaDocumentPatterns[strings.ToUpper(strings.TrimSpace(documentType))]; known && !pattern.MatchString(number) {
+		return &core.ValidationError{Field: "customer.documentNumber", Rule: "format", Message: "customer.documentNumber has an invalid format for customer.documentType"}
+	}
+	return nil
+}
 
 func validCollectionKey(value string) bool {
 	if value == "" || len(value) > 128 {
@@ -42,6 +84,9 @@ func (s *Payments) Create(ctx context.Context, principal core.Principal, in core
 	if strings.TrimSpace(idempotencyKey) == "" || in.ExternalID == "" || in.Amount == "" || in.Currency == "" || in.PaymentMethod == "" || len(in.Customer) == 0 {
 		return core.Payment{}, false, ErrInvalid
 	}
+	if err := validatePaymentFormats(in); err != nil {
+		return core.Payment{}, false, err
+	}
 	if (in.DestinationMode == "reusable" && !validCollectionKey(in.CollectionKey)) || (in.DestinationMode != "reusable" && in.CollectionKey != "") {
 		return core.Payment{}, false, ErrInvalid
 	}
@@ -58,7 +103,7 @@ func (s *Payments) Create(ctx context.Context, principal core.Principal, in core
 		in.ExpirationDate = now.Add(15 * time.Minute)
 	}
 	txID := deterministicUUID(merchantID + ":payment:" + idempotencyKey)
-	if existing, replayed, err := s.store.BeginCreate(ctx, merchantID, idempotencyKey, hash, txID); err != nil || replayed {
+	if existing, replayed, err := s.store.BeginCreate(ctx, merchantID, idempotencyKey, hash, txID, in.ExternalID); err != nil || replayed {
 		return existing, replayed, err
 	}
 	completed := false

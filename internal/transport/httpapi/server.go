@@ -494,7 +494,9 @@ func (s *Server) list(w http.ResponseWriter, r *http.Request) {
 		}
 		limit = parsed
 	}
-	result, err := s.payments.List(r.Context(), p, core.PaymentListOptions{Limit: limit, Cursor: r.URL.Query().Get("cursor")})
+	result, err := s.payments.List(r.Context(), p, core.PaymentListOptions{
+		Limit: limit, Cursor: r.URL.Query().Get("cursor"), Status: r.URL.Query().Get("status"), ExternalID: r.URL.Query().Get("externalId"),
+	})
 	if err != nil {
 		mapError(w, err)
 		return
@@ -571,8 +573,10 @@ func (s *Server) create(w http.ResponseWriter, r *http.Request) {
 	}
 	if replayed {
 		w.Header().Set("Idempotent-Replayed", "true")
+		writeJSON(w, http.StatusOK, result)
+		return
 	}
-	writeJSON(w, 201, result)
+	writeJSON(w, http.StatusCreated, result)
 }
 
 func (s *Server) get(w http.ResponseWriter, r *http.Request) {
@@ -617,12 +621,18 @@ func mapError(w http.ResponseWriter, err error) {
 		writeError(w, 404, "not_found", err.Error())
 	case errors.Is(err, app.ErrConflict):
 		writeError(w, 409, "idempotency_conflict", err.Error())
+	case errors.Is(err, core.ErrExternalIDConflict):
+		writeError(w, 409, "external_id_conflict", "externalId already exists for this merchant")
 	case errors.Is(err, app.ErrDestinationInUse):
 		writeError(w, 409, "destination_in_use", "The reusable destination already has an open payment.")
 	case errors.Is(err, app.ErrInProgress):
 		writeError(w, 409, "operation_in_progress", err.Error())
 	case errors.Is(err, app.ErrUnsupported):
 		writeError(w, 422, "refund_not_supported", err.Error())
+	case errors.Is(err, core.ErrRouteUnsupported):
+		writeError(w, 422, "payment_method_not_supported", "The requested payment method is not supported for this currency and country.")
+	case errors.Is(err, core.ErrProviderRejected):
+		writeError(w, 422, "provider_rejected", "The payment request was rejected.")
 	default:
 		requestID := w.Header().Get("X-Request-Id")
 		slog.Error("request dependency unavailable", "error", err, "request_id", requestID)

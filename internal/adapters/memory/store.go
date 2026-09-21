@@ -9,8 +9,8 @@ import (
 )
 
 type idempotencyRecord struct {
-	Hash, TransactionID string
-	Complete            bool
+	Hash, TransactionID, ExternalID string
+	Complete                        bool
 }
 
 func (s *Store) List(_ context.Context, accountID, merchantID string, options core.PaymentListOptions) (core.PaymentPage, error) {
@@ -22,9 +22,16 @@ func (s *Store) List(_ context.Context, accountID, merchantID string, options co
 	}
 	items := make([]core.Payment, 0, len(s.payments))
 	for _, p := range s.payments {
-		if (merchantID != "" && p.MerchantID == merchantID) || (merchantID == "" && accountID != "" && p.AccountID == accountID) {
-			items = append(items, p)
+		if !((merchantID != "" && p.MerchantID == merchantID) || (merchantID == "" && accountID != "" && p.AccountID == accountID)) {
+			continue
 		}
+		if options.Status != "" && p.Status != options.Status {
+			continue
+		}
+		if options.ExternalID != "" && p.ExternalID != options.ExternalID {
+			continue
+		}
+		items = append(items, p)
 	}
 	sort.Slice(items, func(i, j int) bool {
 		if items[i].CreationDate.Equal(items[j].CreationDate) {
@@ -50,7 +57,7 @@ func NewStore() *Store {
 	return &Store{payments: map[string]core.Payment{}, events: map[string]core.MerchantEvent{}, keys: map[string]idempotencyRecord{}}
 }
 
-func (s *Store) BeginCreate(_ context.Context, merchantID, key, hash, transactionID string) (core.Payment, bool, error) {
+func (s *Store) BeginCreate(_ context.Context, merchantID, key, hash, transactionID, externalID string) (core.Payment, bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	scope := merchantID + ":" + key
@@ -63,7 +70,12 @@ func (s *Store) BeginCreate(_ context.Context, merchantID, key, hash, transactio
 		}
 		return s.payments[existing.TransactionID], true, nil
 	}
-	s.keys[scope] = idempotencyRecord{Hash: hash, TransactionID: transactionID}
+	for existingScope, existing := range s.keys {
+		if existingScope != scope && existing.ExternalID == externalID && len(existingScope) > len(merchantID) && existingScope[:len(merchantID)+1] == merchantID+":" {
+			return core.Payment{}, false, core.ErrExternalIDConflict
+		}
+	}
+	s.keys[scope] = idempotencyRecord{Hash: hash, TransactionID: transactionID, ExternalID: externalID}
 	return core.Payment{}, false, nil
 }
 

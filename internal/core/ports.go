@@ -30,7 +30,7 @@ type LegacyRefunds interface {
 // PaymentStore reserves idempotency before external calls, then commits the
 // payment and initial merchant event atomically.
 type PaymentStore interface {
-	BeginCreate(context.Context, string, string, string, string) (Payment, bool, error)
+	BeginCreate(context.Context, string, string, string, string, string) (Payment, bool, error)
 	CompleteCreate(context.Context, Payment, MerchantEvent, string) error
 	ReleaseCreate(context.Context, string, string) error
 	Get(context.Context, string, string, string) (Payment, error)

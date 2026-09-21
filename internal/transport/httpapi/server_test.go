@@ -19,7 +19,7 @@ import (
 func TestHostedCheckoutRendersSafeQRAndMinimalStatus(t *testing.T) {
 	const transactionID = "8dd5d1ee-1ba0-4311-bbbd-fd19765b2f93"
 	store := memory.NewStore()
-	_, _, _ = store.BeginCreate(context.Background(), "merchant-1", "checkout-test", "hash", transactionID)
+	_, _, _ = store.BeginCreate(context.Background(), "merchant-1", "checkout-test", "hash", transactionID, "checkout-external")
 	payment := core.Payment{
 		TransactionID: transactionID, AccountID: "account-1", MerchantID: "merchant-1", ExternalID: "private-order",
 		Status: "started", Amount: "150.00", Currency: "ARS", PaymentMethod: "qr", CreationDate: time.Now().UTC(),
@@ -70,7 +70,7 @@ func TestHostedCheckoutRendersSafeQRAndMinimalStatus(t *testing.T) {
 func TestHostedCheckoutRendersSingleUseBankTransferWithoutReference(t *testing.T) {
 	const transactionID = "72758000-1200-4000-8220-000000000001"
 	store := memory.NewStore()
-	_, _, _ = store.BeginCreate(context.Background(), "merchant-1", "bank-checkout", "hash", transactionID)
+	_, _, _ = store.BeginCreate(context.Background(), "merchant-1", "bank-checkout", "hash", transactionID, "bank-external")
 	payment := core.Payment{
 		TransactionID: transactionID, AccountID: "account-1", MerchantID: "merchant-1", ExternalID: "order-1",
 		Status: "started", Amount: "80.00", Currency: "MXN", PaymentMethod: "bank_transfer", CreationDate: time.Now().UTC(),
@@ -132,6 +132,32 @@ func TestMapErrorSanitizesDependencyFailure(t *testing.T) {
 	}
 	if strings.Contains(recorder.Body.String(), "provider") || strings.Contains(recorder.Body.String(), "secret detail") {
 		t.Fatalf("internal upstream detail leaked: %s", recorder.Body.String())
+	}
+}
+
+func TestMapErrorClassifiesPaymentBusinessFailures(t *testing.T) {
+	tests := []struct {
+		name       string
+		err        error
+		statusCode int
+		code       string
+	}{
+		{name: "external id", err: core.ErrExternalIDConflict, statusCode: http.StatusConflict, code: "external_id_conflict"},
+		{name: "unsupported route", err: core.ErrRouteUnsupported, statusCode: http.StatusUnprocessableEntity, code: "payment_method_not_supported"},
+		{name: "provider rejection", err: core.ErrProviderRejected, statusCode: http.StatusUnprocessableEntity, code: "provider_rejected"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			mapError(recorder, test.err)
+			var body map[string]any
+			if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
+				t.Fatal(err)
+			}
+			if recorder.Code != test.statusCode || body["code"] != test.code {
+				t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+			}
+		})
 	}
 }
 

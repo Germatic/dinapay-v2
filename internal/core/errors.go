@@ -15,6 +15,8 @@ var (
 	ErrInsufficientBalance = errors.New("insufficient balance")
 	ErrProviderRejected    = errors.New("provider rejected request")
 	ErrDestinationInUse    = errors.New("reusable destination already has an open payment")
+	ErrExternalIDConflict  = errors.New("externalId already exists for merchant")
+	ErrRouteUnsupported    = errors.New("requested payment route is not supported")
 )
 
 type ValidationError struct {

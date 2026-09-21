@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -25,6 +26,9 @@ func NewRouter(baseURL, token string) *Router {
 func (r *Router) Resolve(ctx context.Context, in core.RouteRequest) (core.RouteDecision, error) {
 	var out core.RouteDecision
 	if err := postJSON(ctx, r.client, r.baseURL+"/v1/routes/resolve", r.token, "", in, &out); err != nil {
+		if errors.Is(err, core.ErrProviderRejected) {
+			return out, fmt.Errorf("%w: %v", core.ErrRouteUnsupported, err)
+		}
 		return out, err
 	}
 	return out, nil
