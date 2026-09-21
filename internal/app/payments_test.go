@@ -98,6 +98,19 @@ func TestCreateValidatesAmountFormatBeforeDependencies(t *testing.T) {
 	}
 }
 
+func TestCreateAllowsEightDecimalsForCrypto(t *testing.T) {
+	svc := NewPayments(routerStub{}, connectorStub{}, memory.NewStore(), static.NewAuth("test-key=account1:merchant1"), "")
+	base := core.CreatePayment{ExternalID: "crypto-8", Amount: "0.12345678", Currency: "USDT", PaymentMethod: "crypto_payment", Customer: core.Customer{"country": "UY"}}
+	if _, _, err := svc.Create(context.Background(), core.Principal{MerchantID: "merchant1"}, base, "crypto-8"); err != nil {
+		t.Fatalf("eight decimal crypto amount error=%v", err)
+	}
+	base.ExternalID = "crypto-9"
+	base.Amount = "0.123456789"
+	if _, _, err := svc.Create(context.Background(), core.Principal{MerchantID: "merchant1"}, base, "crypto-9"); err == nil {
+		t.Fatal("nine decimal crypto amount accepted")
+	}
+}
+
 func TestCreateValidatesArgentinaQRDocumentFormatWhenPresent(t *testing.T) {
 	svc := NewPayments(routerStub{}, connectorStub{}, memory.NewStore(), static.NewAuth("test-key=account1:merchant1"), "")
 	base := core.CreatePayment{ExternalID: "document-test", Amount: "1.00", Currency: "ARS", PaymentMethod: "qr", Customer: core.Customer{"country": "AR", "documentType": "DNI", "documentNumber": "ABC"}}

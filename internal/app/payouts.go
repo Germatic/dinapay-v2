@@ -25,6 +25,16 @@ func (s *Payouts) Create(ctx context.Context, principal core.Principal, key stri
 	if strings.TrimSpace(key) == "" || strings.TrimSpace(in.ExternalID) == "" || strings.TrimSpace(in.Source.Amount) == "" || strings.TrimSpace(in.Source.Currency) == "" || strings.TrimSpace(in.Destination.Country) == "" || strings.TrimSpace(in.Destination.Currency) == "" || len(in.Destination.Beneficiary) == 0 || strings.TrimSpace(stringValue(in.Destination.Rail, "type")) == "" {
 		return core.Payout{}, false, ErrInvalid
 	}
+	if err := core.ValidateMoney(in.Source.Amount, in.Source.Currency, "source.amount", "source.currency"); err != nil {
+		return core.Payout{}, false, err
+	}
+	if strings.TrimSpace(in.Destination.Amount) != "" {
+		if err := core.ValidateMoney(in.Destination.Amount, in.Destination.Currency, "destination.amount", "destination.currency"); err != nil {
+			return core.Payout{}, false, err
+		}
+	} else if _, err := core.ValidateCurrency(in.Destination.Currency, "destination.currency"); err != nil {
+		return core.Payout{}, false, err
+	}
 	if err := validatePayoutDestination(in.Destination); err != nil {
 		return core.Payout{}, false, err
 	}

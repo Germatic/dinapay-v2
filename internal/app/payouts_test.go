@@ -117,6 +117,36 @@ func TestCreateMobilePayoutRequiresCorridorFieldsBeforeRouting(t *testing.T) {
 	}
 }
 
+func TestCreatePayoutValidatesSourceAndDestinationMoney(t *testing.T) {
+	base := core.CreatePayout{
+		ExternalID: "money-1", Source: core.Money{Amount: "1.001", Currency: "USD"},
+		Destination: core.PayoutDestination{
+			Country: "VE", Currency: "VES", Amount: "36.50",
+			Beneficiary: map[string]any{"mobile": "04225786563", "documentNumber": "V40001469"},
+			Rail:        map[string]any{"type": "ve_mobile_payment", "bankCode": "0102"},
+		},
+	}
+	svc := NewPayouts(nil, nil, nil, nil, nil)
+	_, _, err := svc.Create(context.Background(), core.Principal{}, "source-precision", base)
+	var validation *core.ValidationError
+	if !errors.As(err, &validation) || validation.Field != "source.amount" {
+		t.Fatalf("source amount error=%#v", err)
+	}
+	base.Source.Amount = "1.00"
+	base.Destination.Amount = "36.501"
+	_, _, err = svc.Create(context.Background(), core.Principal{}, "destination-precision", base)
+	if !errors.As(err, &validation) || validation.Field != "destination.amount" {
+		t.Fatalf("destination amount error=%#v", err)
+	}
+	base.Destination.Amount = "36.50"
+	base.Destination.Currency = "XYZ"
+	_, _, err = svc.Create(context.Background(), core.Principal{}, "destination-currency", base)
+	var unsupported *core.UnsupportedCurrencyError
+	if !errors.As(err, &unsupported) || unsupported.Field != "destination.currency" {
+		t.Fatalf("destination currency error=%#v", err)
+	}
+}
+
 func cloneMap(value map[string]any) map[string]any {
 	cloned := make(map[string]any, len(value))
 	for key, item := range value {

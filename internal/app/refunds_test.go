@@ -6,8 +6,27 @@ import (
 	"testing"
 
 	contract "github.com/Germatic/dinapay-contracts/go/connectorcontract/failures"
+	"github.com/Germatic/dinapay-v2/internal/adapters/memory"
 	"github.com/Germatic/dinapay-v2/internal/core"
 )
+
+func TestCreateRefundValidatesMoneyForV2Payment(t *testing.T) {
+	payments := memory.NewStore()
+	_, _, _ = payments.BeginCreate(context.Background(), "merchant-1", "payment-key", "hash", "payment-1", "payment-external")
+	err := payments.CompleteCreate(context.Background(), core.Payment{
+		TransactionID: "payment-1", AccountID: "account-1", MerchantID: "merchant-1", ExternalID: "payment-external",
+		Status: "confirmed", Amount: "10.00", Currency: "USD", Origin: "v2",
+	}, core.MerchantEvent{EventID: "payment-event"}, "payment-key")
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc := NewRefunds(payments, &refundStoreStub{}, nil, &refundConnectorStub{}, &refundLedgerStub{})
+	_, _, err = svc.Create(context.Background(), core.Principal{AccountID: "account-1", MerchantID: "merchant-1"}, "", "payment-1", "refund-key", core.CreateRefund{ExternalID: "refund-1", Amount: "1.001"})
+	var validation *core.ValidationError
+	if !errors.As(err, &validation) || validation.Field != "amount" {
+		t.Fatalf("refund amount error=%#v", err)
+	}
+}
 
 type refundStoreStub struct {
 	transitions []refundTransition

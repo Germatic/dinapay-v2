@@ -51,6 +51,9 @@ func (s *Refunds) Create(ctx context.Context, p core.Principal, credential, paym
 		}
 		return s.legacy.Create(ctx, credential, paymentID, key, in)
 	}
+	if err := core.ValidateMoney(in.Amount, payment.Currency, "amount", "currency"); err != nil {
+		return core.Refund{}, false, err
+	}
 	if s.native == nil {
 		return core.Refund{}, false, ErrUnsupported
 	}

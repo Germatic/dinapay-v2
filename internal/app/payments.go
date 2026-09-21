@@ -14,28 +14,15 @@ import (
 	"github.com/Germatic/dinapay-v2/internal/core"
 )
 
-var paymentAmountPattern = regexp.MustCompile(`^[0-9]+(?:\.[0-9]{1,2})?$`)
 var argentinaDocumentPatterns = map[string]*regexp.Regexp{
 	"DNI":  regexp.MustCompile(`^[0-9]{7,8}$`),
 	"CUIT": regexp.MustCompile(`^[0-9]{11}$`),
 	"CUIL": regexp.MustCompile(`^[0-9]{11}$`),
 }
 
-func validPaymentAmount(value string) bool {
-	if !paymentAmountPattern.MatchString(value) {
-		return false
-	}
-	for _, r := range value {
-		if r >= '1' && r <= '9' {
-			return true
-		}
-	}
-	return false
-}
-
 func validatePaymentFormats(in core.CreatePayment) error {
-	if !validPaymentAmount(in.Amount) {
-		return &core.ValidationError{Field: "amount", Rule: "format", Message: "amount must be a positive decimal with at most two fractional digits"}
+	if err := core.ValidateMoney(in.Amount, in.Currency, "amount", "currency"); err != nil {
+		return err
 	}
 	if !strings.EqualFold(in.PaymentMethod, "qr") || !strings.EqualFold(in.Currency, "ARS") {
 		return nil

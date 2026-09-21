@@ -608,9 +608,14 @@ func (s *Server) principal(w http.ResponseWriter, r *http.Request, requiredScope
 
 func mapError(w http.ResponseWriter, err error) {
 	var validation *core.ValidationError
+	var unsupportedCurrency *core.UnsupportedCurrencyError
 	switch {
 	case errors.As(err, &validation):
 		writeValidationError(w, validation)
+	case errors.As(err, &unsupportedCurrency):
+		writeJSON(w, http.StatusBadRequest, map[string]any{
+			"code": "unsupported_currency", "message": unsupportedCurrency.Error(), "requestId": w.Header().Get("X-Request-Id"), "field": unsupportedCurrency.Field,
+		})
 	case errors.Is(err, core.ErrInvalid):
 		writeError(w, 400, "invalid_request", err.Error())
 	case errors.Is(err, app.ErrInvalid):
