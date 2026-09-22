@@ -203,7 +203,18 @@ func (s *Store) ApplyProviderEvent(ctx context.Context, event core.ProviderEvent
 			return core.EventResult{}, core.ErrConflict
 		}
 		var feeAmount string
-		err = tx.QueryRow(ctx, `SELECT COALESCE((SELECT GREATEST(ROUND($3::numeric*f.payin_fee_pct,8),f.payin_fee_min)::text FROM account_fees f WHERE f.account_id=$1 AND f.currency=$2 AND f.effective_from<=now() ORDER BY f.effective_from DESC LIMIT 1),'0'),GREATEST($3::numeric-COALESCE((SELECT GREATEST(ROUND($3::numeric*f.payin_fee_pct,8),f.payin_fee_min) FROM account_fees f WHERE f.account_id=$1 AND f.currency=$2 AND f.effective_from<=now() ORDER BY f.effective_from DESC LIMIT 1),0),0)::text`, p.AccountID, p.Currency, p.ReceivedAmount).Scan(&feeAmount, &netAmount)
+		err = tx.QueryRow(ctx, `WITH configured_fee AS (
+		  SELECT COALESCE(
+		    (SELECT GREATEST(ROUND($4::numeric*f.fee_rate,8),f.fee_minimum)
+		       FROM control_plane_account_fee_rules f
+		      WHERE f.account_id=$1 AND f.currency=$2 AND f.operation_type='payin'
+		        AND f.provider_code IN ($3,'') AND f.effective_from<=now()
+		      ORDER BY (f.provider_code=$3) DESC,f.effective_from DESC LIMIT 1),
+		    (SELECT GREATEST(ROUND($4::numeric*f.payin_fee_pct,8),f.payin_fee_min)
+		       FROM account_fees f WHERE f.account_id=$1 AND f.currency=$2
+		        AND f.effective_from<=now() ORDER BY f.effective_from DESC LIMIT 1),
+		    0) fee
+		) SELECT fee::text,GREATEST($4::numeric-fee,0)::text FROM configured_fee`, p.AccountID, p.Currency, p.Route.Provider, p.ReceivedAmount).Scan(&feeAmount, &netAmount)
 		if err != nil {
 			return core.EventResult{}, err
 		}

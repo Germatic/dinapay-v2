@@ -103,9 +103,18 @@ func (s *Store) CompletePayout(ctx context.Context, principal core.Principal, ke
 	}
 	defer tx.Rollback(ctx)
 	var feeAmount, totalDebitAmount string
-	err = tx.QueryRow(ctx, `SELECT
-		COALESCE((SELECT GREATEST(ROUND($4::numeric*f.payout_fee_pct,8),f.payout_fee_min)::text FROM account_fees f WHERE f.account_id=$1 AND f.currency=$2 AND f.provider_code IN ($3,'') AND f.effective_from<=now() ORDER BY (f.provider_code=$3) DESC,f.effective_from DESC LIMIT 1),'0'),
-		($4::numeric+COALESCE((SELECT GREATEST(ROUND($4::numeric*f.payout_fee_pct,8),f.payout_fee_min) FROM account_fees f WHERE f.account_id=$1 AND f.currency=$2 AND f.provider_code IN ($3,'') AND f.effective_from<=now() ORDER BY (f.provider_code=$3) DESC,f.effective_from DESC LIMIT 1),0))::text`, principal.AccountID, in.Source.Currency, route.Provider, in.Source.Amount).Scan(&feeAmount, &totalDebitAmount)
+	err = tx.QueryRow(ctx, `WITH configured_fee AS (
+		  SELECT COALESCE(
+		    (SELECT GREATEST(ROUND($4::numeric*f.fee_rate,8),f.fee_minimum)
+		       FROM control_plane_account_fee_rules f
+		      WHERE f.account_id=$1 AND f.currency=$2 AND f.operation_type='payout'
+		        AND f.provider_code IN ($3,'') AND f.effective_from<=now()
+		      ORDER BY (f.provider_code=$3) DESC,f.effective_from DESC LIMIT 1),
+		    (SELECT GREATEST(ROUND($4::numeric*f.payout_fee_pct,8),f.payout_fee_min)
+		       FROM account_fees f WHERE f.account_id=$1 AND f.currency=$2
+		        AND f.effective_from<=now() ORDER BY f.effective_from DESC LIMIT 1),
+		    0) fee
+		) SELECT fee::text,($4::numeric+fee)::text FROM configured_fee`, principal.AccountID, in.Source.Currency, route.Provider, in.Source.Amount).Scan(&feeAmount, &totalDebitAmount)
 	if err != nil {
 		return core.Payout{}, err
 	}
