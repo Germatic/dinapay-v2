@@ -39,6 +39,29 @@ CREATE INDEX IF NOT EXISTS dinapay_v2_payments_account_idx
   ON dinapay_v2_payments (account_id, creation_date DESC);
 CREATE INDEX IF NOT EXISTS dinapay_v2_payments_merchant_idx
   ON dinapay_v2_payments (merchant_id, creation_date DESC);
+
+-- Durable delivery of confirmed V2 payins to Dinacore. The payment state and
+-- its balance credit are committed atomically; this worker-owned outbox then
+-- retries the external ledger call without losing or duplicating credits.
+CREATE TABLE IF NOT EXISTS dinacore_balance_outbox (
+  id              UUID          PRIMARY KEY DEFAULT gen_random_uuid(),
+  ref_type        TEXT          NOT NULL,
+  ref_id          TEXT          NOT NULL,
+  account_id      TEXT          NOT NULL,
+  amount          NUMERIC(36,18) NOT NULL,
+  currency        TEXT          NOT NULL,
+  sent            BOOLEAN       NOT NULL DEFAULT false,
+  attempt_count   INTEGER       NOT NULL DEFAULT 0,
+  next_attempt_at TIMESTAMPTZ   NOT NULL DEFAULT now(),
+  last_error      TEXT,
+  created_at      TIMESTAMPTZ   NOT NULL DEFAULT now(),
+  sent_at         TIMESTAMPTZ,
+  UNIQUE (ref_type, ref_id)
+);
+CREATE INDEX IF NOT EXISTS dinacore_balance_outbox_pending_idx
+  ON dinacore_balance_outbox (next_attempt_at, created_at)
+  WHERE sent = false;
+
 ALTER TABLE dinapay_v2_payments ADD COLUMN IF NOT EXISTS provider_payment_id TEXT;
 ALTER TABLE dinapay_v2_payments ADD COLUMN IF NOT EXISTS provider_reference TEXT;
 ALTER TABLE dinapay_v2_payments ADD COLUMN IF NOT EXISTS confirmation_date TIMESTAMPTZ;
