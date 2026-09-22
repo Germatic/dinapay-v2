@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/Germatic/dinapay-v2/internal/app"
+	"github.com/Germatic/dinapay-v2/internal/buildinfo"
 	"github.com/Germatic/dinapay-v2/internal/core"
 	"github.com/Germatic/dinapay-v2/internal/observability"
 )
@@ -42,7 +43,11 @@ func NewWithDashboardReader(payments *app.Payments, refunds *app.Refunds, payout
 		s.webhooks = webhookStores[0]
 	}
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) { writeJSON(w, 200, map[string]string{"status": "up"}) })
+	info := buildinfo.Current("dinapay-v2")
+	mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(w, 200, map[string]any{"status": "up", "build": info})
+	})
+	mux.HandleFunc("GET /version", func(w http.ResponseWriter, _ *http.Request) { writeJSON(w, 200, info) })
 	mux.HandleFunc("GET /ready", func(w http.ResponseWriter, _ *http.Request) { writeJSON(w, 200, map[string]string{"status": "ready"}) })
 	mux.HandleFunc("GET /pay/{transactionId}", s.checkoutPage)
 	mux.HandleFunc("GET /public/v1/checkout/payments/{transactionId}/status", s.checkoutStatus)
