@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/Germatic/dinapay-v2/internal/core"
@@ -211,11 +212,14 @@ func TestPayoutProviderRejectionCompensates(t *testing.T) {
 func TestPayoutProviderRejectionErrorCompensatesWithoutLookup(t *testing.T) {
 	store := &payoutStoreStub{}
 	ledger := &payoutLedgerStub{}
-	connector := &payoutConnectorStub{createErr: core.ErrProviderRejected}
+	connector := &payoutConnectorStub{createErr: fmt.Errorf("%w: upstream status 422: invalid destination", core.ErrProviderRejected)}
 	svc := NewPayouts(store, nil, connector, ledger, nil)
 	svc.process(context.Background(), testPayout("pending_provider"))
 	if connector.gets != 0 || len(store.transitions) != 1 || store.transitions[0].next != "pending_compensation" {
 		t.Fatalf("gets=%d transitions=%#v", connector.gets, store.transitions)
+	}
+	if got := store.transitions[0].fields["lastError"]; got != "provider rejected request: upstream status 422: invalid destination" {
+		t.Fatalf("lastError=%q", got)
 	}
 	svc.process(context.Background(), testPayout("pending_compensation"))
 	if ledger.credits != 1 || store.transitions[1].next != "failed" {

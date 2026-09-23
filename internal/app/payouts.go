@@ -139,8 +139,12 @@ func (s *Payouts) process(ctx context.Context, p core.Payout) {
 		if err != nil {
 			if errors.Is(err, core.ErrProviderRejected) {
 				f := transition("pending_provider")
-				f["lastError"] = "provider rejected payout"
+				// Keep the connector's provider response for internal support and
+				// reconciliation. Public responses continue to expose only the
+				// canonical Dinaria failure catalog.
+				f["lastError"] = err.Error()
 				_, _ = s.store.TransitionPayout(ctx, p.PayoutID, "pending_compensation", f)
+				slog.Warn("payout rejected by provider", "payout_id", p.PayoutID, "provider", p.Route.Provider, "provider_connection_id", p.Route.ProviderConnectionID, "error", err)
 				return
 			}
 			result, err = s.connector.GetPayout(ctx, p.Route, p)
