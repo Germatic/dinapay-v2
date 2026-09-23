@@ -33,6 +33,19 @@ func TestProviderEventIsIdempotentAndCannotRegress(t *testing.T) {
 	if err != nil || !result.Duplicate {
 		t.Fatalf("duplicate: %#v %v", result, err)
 	}
+	enrichment := confirmed
+	enrichment.EventID = "provider-event-enrichment"
+	enrichment.Source = "poll"
+	enrichment.Data.Payer = core.Payer{"institution": map[string]any{"type": "wallet", "name": "MODO"}}
+	result, err = events.Handle(context.Background(), enrichment)
+	if err != nil || result.Changed || result.Status != "confirmed" {
+		t.Fatalf("enrichment: %#v %v", result, err)
+	}
+	stored, err = store.Get(context.Background(), "", "merchant1", p.TransactionID)
+	institution, _ := stored.Payer["institution"].(map[string]any)
+	if err != nil || stored.Payer["name"] != "Juan Perez" || stored.Payer["externalId"] != "payer-1" || institution["name"] != "MODO" {
+		t.Fatalf("enriched stored=%#v err=%v", stored, err)
+	}
 	late := confirmed
 	late.EventID = "provider-event-2"
 	late.EventType = "payment.provider_pending"

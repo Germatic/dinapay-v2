@@ -2,6 +2,7 @@ package memory
 
 import (
 	"context"
+	"reflect"
 	"sort"
 	"sync"
 
@@ -139,12 +140,22 @@ func (s *Store) ApplyProviderEvent(_ context.Context, event core.ProviderEvent, 
 		return core.EventResult{}, core.ErrConflict
 	}
 	changed := p.Status != status && core.PaymentTransitionAllowed(p.Status, status)
-	payerChanged := status == "confirmed" && len(event.Data.Payer) > 0
+	mergedPayer := p.Payer
+	if status == "confirmed" && len(event.Data.Payer) > 0 {
+		mergedPayer = make(core.Payer, len(p.Payer)+len(event.Data.Payer))
+		for key, value := range p.Payer {
+			mergedPayer[key] = value
+		}
+		for key, value := range event.Data.Payer {
+			mergedPayer[key] = value
+		}
+	}
+	payerChanged := !reflect.DeepEqual(p.Payer, mergedPayer)
 	if changed {
 		p.Status = status
 	}
 	if payerChanged {
-		p.Payer = event.Data.Payer
+		p.Payer = mergedPayer
 	}
 	if changed || payerChanged {
 		p.Version++
@@ -155,5 +166,5 @@ func (s *Store) ApplyProviderEvent(_ context.Context, event core.ProviderEvent, 
 	if changed && event.Data.Failure != nil {
 		failureCode = event.Data.Failure.Code
 	}
-	return core.EventResult{Changed: changed || payerChanged, Status: p.Status, FailureCode: failureCode}, nil
+	return core.EventResult{Changed: changed, Status: p.Status, FailureCode: failureCode}, nil
 }

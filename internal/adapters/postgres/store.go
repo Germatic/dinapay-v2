@@ -183,9 +183,32 @@ func (s *Store) ApplyProviderEvent(ctx context.Context, event core.ProviderEvent
 	if !ok {
 		return core.EventResult{}, core.ErrConflict
 	}
-	payerChanged := next == "confirmed" && len(event.Data.Payer) > 0 && !reflect.DeepEqual(p.Payer, event.Data.Payer)
+	mergedPayer := p.Payer
+	if next == "confirmed" && len(event.Data.Payer) > 0 {
+		mergedPayer = make(core.Payer, len(p.Payer)+len(event.Data.Payer))
+		for key, value := range p.Payer {
+			mergedPayer[key] = value
+		}
+		for key, value := range event.Data.Payer {
+			mergedPayer[key] = value
+		}
+	}
+	payerChanged := !reflect.DeepEqual(p.Payer, mergedPayer)
 	if next == p.Status && !payerChanged {
 		if err := tx.Commit(ctx); err != nil {
+			return core.EventResult{}, err
+		}
+		return core.EventResult{Status: p.Status}, nil
+	}
+	if next == p.Status && payerChanged {
+		p.Payer = mergedPayer
+		p.Version++
+		payer, _ = json.Marshal(p.Payer)
+		_, err = tx.Exec(ctx, `UPDATE dinapay_v2_payments SET provider_reference=COALESCE(NULLIF($2,''),provider_reference),resource_version=$3,payer=$4,updated_at=now() WHERE transaction_id=$1`, p.TransactionID, event.Data.ProviderReference, p.Version, payer)
+		if err != nil {
+			return core.EventResult{}, err
+		}
+		if err = tx.Commit(ctx); err != nil {
 			return core.EventResult{}, err
 		}
 		return core.EventResult{Status: p.Status}, nil
@@ -206,8 +229,8 @@ func (s *Store) ApplyProviderEvent(ctx context.Context, event core.ProviderEvent
 	netAmount := p.Amount
 	if next == "confirmed" {
 		p.ReceivedAmount = event.Data.Amount
-		if len(event.Data.Payer) > 0 {
-			p.Payer = event.Data.Payer
+		if payerChanged {
+			p.Payer = mergedPayer
 			payer, _ = json.Marshal(p.Payer)
 		}
 		if p.ReceivedAmount == "" {
