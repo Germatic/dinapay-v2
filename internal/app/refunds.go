@@ -142,6 +142,29 @@ func (s *Refunds) process(ctx context.Context, r core.Refund) {
 		p := core.Payment{TransactionID: r.TransactionID, AccountID: r.AccountID, MerchantID: r.MerchantID, ProviderPaymentID: r.ProviderPaymentID, Route: r.Route}
 		result, err := s.connector.CreateRefund(ctx, r.Route, p, r, "refund:"+r.RefundID)
 		if err != nil {
+			if errors.Is(err, core.ErrProviderRejected) {
+				failure := contract.NewRefund(contract.RefundRejected)
+				providerFailure := contract.ProviderFailure{Code: "provider_rejected", Message: err.Error()}
+				var rejected *core.ProviderRejectedError
+				if errors.As(err, &rejected) {
+					if rejected.Failure != nil && contract.ValidRefund(*rejected.Failure) {
+						failure = *rejected.Failure
+					}
+					if rejected.ProviderFailure != nil {
+						providerFailure = *rejected.ProviderFailure
+					}
+				}
+				f := transition("pending_provider")
+				f["lastError"] = err.Error()
+				f["failure"] = failure
+				f["providerFailure"] = providerFailure
+				updated, transitionErr := s.native.TransitionRefund(ctx, r.RefundID, "pending_compensation", f)
+				if transitionErr == nil {
+					s.observe(updated)
+				}
+				slog.Warn("refund rejected by provider", "refund_id", r.RefundID, "provider", r.Route.Provider, "provider_connection_id", r.Route.ProviderConnectionID, "error", err)
+				return
+			}
 			result, err = s.connector.GetRefund(ctx, r.Route, r)
 			if err != nil {
 				return

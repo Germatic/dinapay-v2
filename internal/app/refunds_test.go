@@ -159,6 +159,30 @@ func TestRefundProviderRejectionIsCompensated(t *testing.T) {
 	}
 }
 
+func TestRefundProviderRejectionErrorMovesToCompensation(t *testing.T) {
+	store := &refundStoreStub{}
+	ledger := &refundLedgerStub{}
+	public := contract.NewRefund(contract.RefundRejected)
+	native := contract.ProviderFailure{Code: "full_refund_required", Message: "PVS only supports full refunds"}
+	connector := &refundConnectorStub{createErr: &core.ProviderRejectedError{Message: "provider rejected partial refund", Failure: &public, ProviderFailure: &native}}
+	svc := NewRefunds(nil, store, nil, connector, ledger)
+
+	svc.process(context.Background(), testRefund("pending_provider"))
+
+	if connector.createCalls != 1 || connector.getCalls != 0 {
+		t.Fatalf("create calls=%d get calls=%d", connector.createCalls, connector.getCalls)
+	}
+	if len(store.transitions) != 1 || store.transitions[0].next != "pending_compensation" {
+		t.Fatalf("transitions=%#v", store.transitions)
+	}
+	if got := store.transitions[0].fields["failure"].(contract.Failure); got.Code != string(contract.RefundRejected) {
+		t.Fatalf("failure=%#v", got)
+	}
+	if got := store.transitions[0].fields["providerFailure"].(contract.ProviderFailure); got.Code != "full_refund_required" {
+		t.Fatalf("provider failure=%#v", got)
+	}
+}
+
 func TestRefundInvalidConnectorFailureFallsBackWithoutExposure(t *testing.T) {
 	invalid := contract.Failure{Code: "binance_native", Category: "provider", Message: "native message"}
 	public, native := normalizeRefundFailure(core.ProviderRefund{RawStatus: "REFUND_FAIL", Failure: &invalid})
