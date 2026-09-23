@@ -60,11 +60,11 @@ func (s *Store) listConsolidated(ctx context.Context, query, accountID, merchant
 	created := make([]time.Time, 0, limit+1)
 	for rows.Next() {
 		var p core.Payment
-		var customer, metadata, paymentData, pricing, failure []byte
+		var customer, payer, metadata, paymentData, pricing, failure []byte
 		var origin string
 		var creation time.Time
 		var expiration, confirmation *time.Time
-		if err := rows.Scan(&p.TransactionID, &p.AccountID, &p.MerchantID, &p.ExternalID, &p.Status, &p.Amount, &p.ReceivedAmount, &p.Currency, &p.PaymentMethod, &p.Description, &creation, &expiration, &confirmation, &p.ActionURL, &customer, &metadata, &paymentData, &pricing, &failure, &origin); err != nil {
+		if err := rows.Scan(&p.TransactionID, &p.AccountID, &p.MerchantID, &p.ExternalID, &p.Status, &p.Amount, &p.ReceivedAmount, &p.Currency, &p.PaymentMethod, &p.Description, &creation, &expiration, &confirmation, &p.ActionURL, &customer, &payer, &metadata, &paymentData, &pricing, &failure, &origin); err != nil {
 			return core.PaymentPage{}, err
 		}
 		p.CreationDate, p.Origin = creation, origin
@@ -73,6 +73,7 @@ func (s *Store) listConsolidated(ctx context.Context, query, accountID, merchant
 		}
 		p.ConfirmationDate = confirmation
 		_ = json.Unmarshal(customer, &p.Customer)
+		_ = json.Unmarshal(payer, &p.Payer)
 		_ = json.Unmarshal(metadata, &p.Metadata)
 		_ = json.Unmarshal(paymentData, &p.PaymentData)
 		_ = json.Unmarshal(pricing, &p.Pricing)
@@ -137,11 +138,11 @@ func legacyPaymentData(provider, actionURL, qr, reference string) map[string]any
 }
 
 const consolidatedSelect = `WITH all_payments AS (
-	SELECT transaction_id::text,account_id,merchant_id,external_id,status,amount,COALESCE(received_amount,''),currency,payment_method,COALESCE(description,''),creation_date,expiration_date,confirmation_date,action_url,customer,metadata,payment_data,COALESCE(pricing,'{}'),failure,'v2'::text origin FROM dinapay_v2_payments
+	SELECT transaction_id::text,account_id,merchant_id,external_id,status,amount,COALESCE(received_amount,''),currency,payment_method,COALESCE(description,''),creation_date,expiration_date,confirmation_date,action_url,customer,payer,metadata,payment_data,COALESCE(pricing,'{}'),failure,'v2'::text origin FROM dinapay_v2_payments
 	UNION ALL
 	SELECT p.id::text,COALESCE(NULLIF(p.account_id,''),m.account_id,''),p.merchant_id,COALESCE(p.external_id,''),p.status,p.amount,COALESCE(p.received_amount,''),p.currency,
 	CASE WHEN p.provider='binancepay' THEN 'crypto_payment' WHEN p.currency='BRL' AND COALESCE(p.qr_data,'')<>'' THEN 'qr' ELSE 'bank_transfer' END,
-	COALESCE(p.description,''),p.created_at,p.expiration,p.received_at,COALESCE(p.action_url,''),p.customer,p.metadata,
+	COALESCE(p.description,''),p.created_at,p.expiration,p.received_at,COALESCE(p.action_url,''),p.customer,NULL::jsonb,p.metadata,
 	CASE WHEN p.provider='binancepay' THEN jsonb_build_object('type','redirect','redirect',jsonb_strip_nulls(jsonb_build_object('recommendedAlternative','universal','links',jsonb_build_object('universal',p.action_url),'qr',CASE WHEN COALESCE(p.qr_data,'')<>'' THEN jsonb_build_object('content',p.qr_data) END))) ELSE jsonb_build_object('type','bank_transfer','bankTransfer',jsonb_strip_nulls(jsonb_build_object('transferReference',p.coinag_reference))) END,jsonb_build_object('feeAmount',COALESCE(p.fee_amount,0)::text,'platformFeeAmount',COALESCE(p.platform_fee_amount,0)::text),
 	NULL::jsonb,'v1'::text FROM payments p LEFT JOIN merchants m ON m.id=p.merchant_id
 ) SELECT * FROM all_payments WHERE (($1<>'' AND merchant_id=$1) OR ($1='' AND $2<>'' AND account_id=$2))
@@ -151,11 +152,11 @@ const consolidatedSelect = `WITH all_payments AS (
 	AND ($10::timestamptz IS NULL OR (creation_date,transaction_id)<($10::timestamptz,$11)) ORDER BY creation_date DESC,transaction_id DESC LIMIT $12`
 
 const dashboardConsolidatedSelect = `WITH all_payments AS (
-	SELECT transaction_id::text,account_id,merchant_id,external_id,status,amount,COALESCE(received_amount,''),currency,payment_method,COALESCE(description,''),creation_date,expiration_date,confirmation_date,action_url,customer,metadata,payment_data,COALESCE(pricing,'{}'),failure,'v2'::text origin FROM dinapay_v2_payments
+	SELECT transaction_id::text,account_id,merchant_id,external_id,status,amount,COALESCE(received_amount,''),currency,payment_method,COALESCE(description,''),creation_date,expiration_date,confirmation_date,action_url,customer,payer,metadata,payment_data,COALESCE(pricing,'{}'),failure,'v2'::text origin FROM dinapay_v2_payments
 	UNION ALL
 	SELECT p.id::text,COALESCE(NULLIF(p.account_id,''),m.account_id,''),p.merchant_id,COALESCE(p.external_id,''),p.status,p.amount,COALESCE(p.received_amount,''),p.currency,
 	CASE WHEN p.provider='binancepay' THEN 'crypto_payment' WHEN p.currency='BRL' AND COALESCE(p.qr_data,'')<>'' THEN 'qr' ELSE 'bank_transfer' END,
-	COALESCE(p.description,''),p.created_at,p.expiration,p.received_at,COALESCE(p.action_url,''),p.customer,p.metadata,
+	COALESCE(p.description,''),p.created_at,p.expiration,p.received_at,COALESCE(p.action_url,''),p.customer,NULL::jsonb,p.metadata,
 	CASE WHEN p.provider='binancepay' THEN jsonb_build_object('type','redirect','redirect',jsonb_strip_nulls(jsonb_build_object('recommendedAlternative','universal','links',jsonb_build_object('universal',p.action_url),'qr',CASE WHEN COALESCE(p.qr_data,'')<>'' THEN jsonb_build_object('content',p.qr_data) END))) ELSE jsonb_build_object('type','bank_transfer','bankTransfer',jsonb_strip_nulls(jsonb_build_object('transferReference',p.coinag_reference))) END,jsonb_build_object('feeAmount',COALESCE(p.fee_amount,0)::text,'platformFeeAmount',COALESCE(p.platform_fee_amount,0)::text),
 	NULL::jsonb,'v1'::text FROM payments p LEFT JOIN merchants m ON m.id=p.merchant_id
 ) SELECT * FROM all_payments WHERE ($1='' OR merchant_id=$1) AND ($2='' OR account_id=$2)

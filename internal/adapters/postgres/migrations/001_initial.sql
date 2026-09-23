@@ -71,6 +71,7 @@ ALTER TABLE dinapay_v2_payments ADD COLUMN IF NOT EXISTS failure JSONB;
 ALTER TABLE dinapay_v2_payments ADD COLUMN IF NOT EXISTS provider_failure JSONB;
 ALTER TABLE dinapay_v2_payments ADD COLUMN IF NOT EXISTS success_url TEXT;
 ALTER TABLE dinapay_v2_payments ADD COLUMN IF NOT EXISTS cancel_url TEXT;
+ALTER TABLE dinapay_v2_payments ADD COLUMN IF NOT EXISTS payer JSONB NOT NULL DEFAULT '{}'::jsonb;
 
 -- Preserve all historical payments, including any pre-existing duplicate
 -- externalId values, while reserving one representative of every historical

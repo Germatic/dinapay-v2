@@ -139,8 +139,14 @@ func (s *Store) ApplyProviderEvent(_ context.Context, event core.ProviderEvent, 
 		return core.EventResult{}, core.ErrConflict
 	}
 	changed := p.Status != status && core.PaymentTransitionAllowed(p.Status, status)
+	payerChanged := status == "confirmed" && len(event.Data.Payer) > 0
 	if changed {
 		p.Status = status
+	}
+	if payerChanged {
+		p.Payer = event.Data.Payer
+	}
+	if changed || payerChanged {
 		p.Version++
 		s.payments[p.TransactionID] = p
 	}
@@ -149,5 +155,5 @@ func (s *Store) ApplyProviderEvent(_ context.Context, event core.ProviderEvent, 
 	if changed && event.Data.Failure != nil {
 		failureCode = event.Data.Failure.Code
 	}
-	return core.EventResult{Changed: changed, Status: p.Status, FailureCode: failureCode}, nil
+	return core.EventResult{Changed: changed || payerChanged, Status: p.Status, FailureCode: failureCode}, nil
 }

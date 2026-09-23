@@ -20,10 +20,14 @@ func TestProviderEventIsIdempotentAndCannotRegress(t *testing.T) {
 		t.Fatal(err)
 	}
 	events := NewProviderEvents(store)
-	confirmed := core.ProviderEvent{EventID: "provider-event-1", EventType: "payment.provider_confirmed", EventVersion: "1", Source: "webhook", ObservedAt: time.Now(), TransactionID: p.TransactionID, Provider: "test", ProviderConnectionID: "connection1", ProviderPaymentID: "provider1", Data: core.ProviderEventData{Status: "confirmed", RawStatus: "PAY_SUCCESS"}}
+	confirmed := core.ProviderEvent{EventID: "provider-event-1", EventType: "payment.provider_confirmed", EventVersion: "1", Source: "webhook", ObservedAt: time.Now(), TransactionID: p.TransactionID, Provider: "test", ProviderConnectionID: "connection1", ProviderPaymentID: "provider1", Data: core.ProviderEventData{Status: "confirmed", RawStatus: "PAY_SUCCESS", Payer: core.Payer{"name": "Juan Perez", "externalId": "payer-1", "institution": map[string]any{"type": "wallet", "name": "MP"}}}}
 	result, err := events.Handle(context.Background(), confirmed)
 	if err != nil || !result.Changed || result.Status != "confirmed" {
 		t.Fatalf("confirmed: %#v %v", result, err)
+	}
+	stored, err := store.Get(context.Background(), "", "merchant1", p.TransactionID)
+	if err != nil || stored.Payer["name"] != "Juan Perez" || stored.Payer["externalId"] != "payer-1" {
+		t.Fatalf("stored=%#v err=%v", stored, err)
 	}
 	result, err = events.Handle(context.Background(), confirmed)
 	if err != nil || !result.Duplicate {

@@ -7,6 +7,7 @@ import (
 )
 
 type Customer map[string]any
+type Payer map[string]any
 
 type CreatePayment struct {
 	MerchantID      string
@@ -45,6 +46,7 @@ type Payment struct {
 	SuccessURL        string         `json:"-"`
 	CancelURL         string         `json:"-"`
 	Customer          Customer       `json:"customer,omitempty"`
+	Payer             Payer          `json:"payer,omitempty"`
 	Metadata          map[string]any `json:"metadata,omitempty"`
 	PaymentData       map[string]any `json:"paymentData"`
 	Pricing           map[string]any `json:"pricing,omitempty"`
@@ -361,6 +363,7 @@ type ProviderEventData struct {
 	Currency          string                    `json:"currency,omitempty"`
 	ProviderReference string                    `json:"providerReference,omitempty"`
 	ProviderData      map[string]any            `json:"providerData,omitempty"`
+	Payer             Payer                     `json:"payer,omitempty"`
 	Failure           *contract.Failure         `json:"failure,omitempty"`
 	ProviderFailure   *contract.ProviderFailure `json:"providerFailure,omitempty"`
 }
