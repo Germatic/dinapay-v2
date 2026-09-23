@@ -116,6 +116,124 @@ func (s *Server) rotateWebhookSecret(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, result)
 }
 
+func (s *Server) dashboardWebhookPrincipal(w http.ResponseWriter, r *http.Request) (core.Principal, bool) {
+	if !s.validDashboardToken(r) || s.webhooks == nil {
+		writeError(w, http.StatusUnauthorized, "unauthorized", "invalid dashboard credentials")
+		return core.Principal{}, false
+	}
+	accountID := strings.TrimSpace(r.URL.Query().Get("accountId"))
+	merchantID := strings.TrimSpace(r.URL.Query().Get("merchantId"))
+	if accountID == "" {
+		writeError(w, http.StatusBadRequest, "invalid_request", "accountId is required")
+		return core.Principal{}, false
+	}
+	if merchantID != "" {
+		authorizer, ok := s.webhooks.(core.WebhookScopeStore)
+		if !ok {
+			writeError(w, http.StatusServiceUnavailable, "dependency_unavailable", "webhook scope validation is unavailable")
+			return core.Principal{}, false
+		}
+		owned, err := authorizer.OwnsWebhookScope(r.Context(), accountID, merchantID)
+		if err != nil {
+			mapError(w, err)
+			return core.Principal{}, false
+		}
+		if !owned {
+			writeError(w, http.StatusForbidden, "forbidden", "merchant does not belong to account")
+			return core.Principal{}, false
+		}
+	}
+	return core.Principal{AccountID: accountID, MerchantID: merchantID}, true
+}
+
+func (s *Server) dashboardListWebhooks(w http.ResponseWriter, r *http.Request) {
+	p, ok := s.dashboardWebhookPrincipal(w, r)
+	if !ok {
+		return
+	}
+	result, err := s.webhooks.ListWebhooks(r.Context(), p)
+	if err != nil {
+		mapError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"data": result})
+}
+
+func (s *Server) dashboardCreateWebhook(w http.ResponseWriter, r *http.Request) {
+	p, ok := s.dashboardWebhookPrincipal(w, r)
+	if !ok {
+		return
+	}
+	var in webhookCreateRequest
+	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&in); err != nil || !validWebhookURL(in.URL) || !validWebhookEvents(in.EventTypes) {
+		writeError(w, http.StatusBadRequest, "invalid_request", "url or eventTypes is invalid")
+		return
+	}
+	secret, err := newWebhookSecret()
+	if err != nil {
+		mapError(w, err)
+		return
+	}
+	result, err := s.webhooks.CreateWebhook(r.Context(), p, in.URL, secret, in.EventTypes)
+	if err != nil {
+		mapError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, result)
+}
+
+func (s *Server) dashboardUpdateWebhook(w http.ResponseWriter, r *http.Request) {
+	p, ok := s.dashboardWebhookPrincipal(w, r)
+	if !ok {
+		return
+	}
+	var in webhookPatchRequest
+	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&in); err != nil || (in.URL == nil && in.EventTypes == nil) || (in.URL != nil && !validWebhookURL(*in.URL)) || (in.EventTypes != nil && !validWebhookEvents(*in.EventTypes)) {
+		writeError(w, http.StatusBadRequest, "invalid_request", "url or eventTypes is invalid")
+		return
+	}
+	result, err := s.webhooks.UpdateWebhook(r.Context(), p, r.PathValue("webhookId"), in.URL, in.EventTypes)
+	if err != nil {
+		mapError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+func (s *Server) dashboardDeleteWebhook(w http.ResponseWriter, r *http.Request) {
+	p, ok := s.dashboardWebhookPrincipal(w, r)
+	if !ok {
+		return
+	}
+	if err := s.webhooks.DeleteWebhook(r.Context(), p, r.PathValue("webhookId")); err != nil {
+		mapError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) dashboardRotateWebhookSecret(w http.ResponseWriter, r *http.Request) {
+	p, ok := s.dashboardWebhookPrincipal(w, r)
+	if !ok {
+		return
+	}
+	secret, err := newWebhookSecret()
+	if err != nil {
+		mapError(w, err)
+		return
+	}
+	result, err := s.webhooks.RotateWebhookSecret(r.Context(), p, r.PathValue("webhookId"), secret)
+	if err != nil {
+		mapError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
 func (s *Server) webhookPrincipal(w http.ResponseWriter, r *http.Request, write bool) (core.Principal, bool) {
 	if s.webhooks == nil {
 		writeError(w, http.StatusServiceUnavailable, "dependency_unavailable", "webhook subscriptions are unavailable")

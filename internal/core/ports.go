@@ -73,6 +73,13 @@ type WebhookSubscriptionStore interface {
 	RotateWebhookSecret(context.Context, Principal, string, string) (WebhookSubscription, error)
 }
 
+// WebhookScopeStore validates dashboard-selected merchant scopes inside the
+// payments service trust boundary. Dashboard callers must never be able to
+// attach a subscription to a merchant owned by another account.
+type WebhookScopeStore interface {
+	OwnsWebhookScope(context.Context, string, string) (bool, error)
+}
+
 // Ledger isolates the current Dinacore API from orchestration. It will be used
 // by normalized provider-event processing, not during payment creation.
 type Ledger interface {

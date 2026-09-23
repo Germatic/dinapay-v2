@@ -16,6 +16,15 @@ func webhookScope(p core.Principal) (string, string) {
 	return "account", p.AccountID
 }
 
+func (s *Store) OwnsWebhookScope(ctx context.Context, accountID, merchantID string) (bool, error) {
+	if accountID == "" || merchantID == "" {
+		return false, nil
+	}
+	var exists bool
+	err := s.db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM merchants WHERE id=$1 AND account_id=$2 AND status='active')`, merchantID, accountID).Scan(&exists)
+	return exists, err
+}
+
 func webhookOwnerSQL(p core.Principal, offset int) (string, []any) {
 	if p.MerchantID != "" {
 		return "merchant_id=$" + strconv.Itoa(offset), []any{p.MerchantID}
