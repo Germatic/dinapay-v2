@@ -201,5 +201,17 @@ CREATE TABLE IF NOT EXISTS dinapay_v2_payout_idempotency (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   PRIMARY KEY(merchant_id,idempotency_key)
 );
+CREATE TABLE IF NOT EXISTS dinapay_v2_payout_external_ids (
+  merchant_id TEXT NOT NULL,
+  external_id TEXT NOT NULL,
+  payout_id UUID NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY(merchant_id,external_id)
+);
+INSERT INTO dinapay_v2_payout_external_ids(merchant_id,external_id,payout_id,created_at)
+SELECT DISTINCT ON (merchant_id,external_id) merchant_id,external_id,payout_id,creation_date
+FROM dinapay_v2_payouts
+ORDER BY merchant_id,external_id,creation_date,payout_id
+ON CONFLICT(merchant_id,external_id) DO NOTHING;
 CREATE INDEX IF NOT EXISTS dinapay_v2_payouts_pending_idx ON dinapay_v2_payouts(next_attempt_at,creation_date)
   WHERE status IN ('pending_debit','pending_provider','provider_unknown','processing','pending_compensation','pending_compensation_cancelled','pending_compensation_reversed');

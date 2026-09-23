@@ -102,6 +102,13 @@ func (s *Store) CompletePayout(ctx context.Context, principal core.Principal, ke
 		return core.Payout{}, err
 	}
 	defer tx.Rollback(ctx)
+	externalID, err := tx.Exec(ctx, `INSERT INTO dinapay_v2_payout_external_ids(merchant_id,external_id,payout_id) VALUES($1,$2,$3) ON CONFLICT DO NOTHING`, principal.MerchantID, in.ExternalID, id)
+	if err != nil {
+		return core.Payout{}, err
+	}
+	if externalID.RowsAffected() != 1 {
+		return core.Payout{}, core.ErrExternalIDConflict
+	}
 	var feeAmount, totalDebitAmount string
 	err = tx.QueryRow(ctx, `WITH configured_fee AS (
 		  SELECT COALESCE(
