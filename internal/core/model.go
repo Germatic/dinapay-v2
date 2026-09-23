@@ -131,6 +131,12 @@ type PayoutDestination struct {
 	Rail        map[string]any `json:"rail"`
 }
 
+type ResolvedBankAccount struct {
+	AccountNumber string
+	TaxID         string
+	HolderName    string
+}
+
 type CreatePayout struct {
 	MerchantID  string            `json:"merchantId,omitempty"`
 	ExternalID  string            `json:"externalId"`

@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	contract "github.com/Germatic/dinapay-contracts/go/connectorcontract/failures"
 	"github.com/Germatic/dinapay-v2/internal/core"
 )
 
@@ -16,10 +17,15 @@ type Payouts struct {
 	connector core.PayoutConnector
 	ledger    core.PayoutLedger
 	auth      core.Authenticator
+	aliases   core.ARSAliasResolver
 }
 
 func NewPayouts(store core.PayoutStore, router core.Router, connector core.PayoutConnector, ledger core.PayoutLedger, auth core.Authenticator) *Payouts {
 	return &Payouts{store: store, router: router, connector: connector, ledger: ledger, auth: auth}
+}
+func (s *Payouts) WithARSAliasResolver(resolver core.ARSAliasResolver) *Payouts {
+	s.aliases = resolver
+	return s
 }
 func (s *Payouts) Create(ctx context.Context, principal core.Principal, key string, in core.CreatePayout) (core.Payout, bool, error) {
 	if strings.TrimSpace(key) == "" || strings.TrimSpace(in.ExternalID) == "" || strings.TrimSpace(in.Source.Amount) == "" || strings.TrimSpace(in.Source.Currency) == "" || strings.TrimSpace(in.Destination.Country) == "" || strings.TrimSpace(in.Destination.Currency) == "" || len(in.Destination.Beneficiary) == 0 || strings.TrimSpace(stringValue(in.Destination.Rail, "type")) == "" {
@@ -70,6 +76,14 @@ func stringValue(v map[string]any, key string) string { x, _ := v[key].(string);
 
 func validatePayoutDestination(destination core.PayoutDestination) error {
 	switch strings.TrimSpace(stringValue(destination.Rail, "type")) {
+	case "ar_bank_transfer":
+		if !nonEmptyString(destination.Rail, "accountNumber") {
+			return core.Required("destination.rail.accountNumber")
+		}
+		accountType := strings.ToLower(strings.TrimSpace(stringValue(destination.Rail, "accountType")))
+		if accountType != "" && accountType != "cbu" && accountType != "cvu" && accountType != "alias" && accountType != "alias_cbu" {
+			return &core.ValidationError{Field: "destination.rail.accountType", Rule: "enum", Message: "destination.rail.accountType must be cbu, cvu or alias"}
+		}
 	case "ve_mobile_payment":
 		if !nonEmptyString(destination.Rail, "bankCode") {
 			return core.Required("destination.rail.bankCode")
@@ -135,7 +149,21 @@ func (s *Payouts) process(ctx context.Context, p core.Payout) {
 		f["balanceDebited"] = true
 		_, _ = s.store.TransitionPayout(ctx, p.PayoutID, "pending_provider", f)
 	case "pending_provider":
-		result, err := s.connector.CreatePayout(ctx, p.Route, p, "payout:"+p.PayoutID)
+		providerPayout, err := s.resolveDestination(ctx, p)
+		if err != nil {
+			var resolution *core.AliasResolutionError
+			if errors.As(err, &resolution) && resolution.Permanent {
+				failure := contract.NewPayout(contract.PayoutInvalidDestination)
+				f := transition("pending_provider")
+				f["lastError"] = resolution.Error()
+				f["failure"] = &failure
+				f["providerFailure"] = &contract.ProviderFailure{Code: "alias_resolution_failed", Message: resolution.Error()}
+				_, _ = s.store.TransitionPayout(ctx, p.PayoutID, "pending_compensation", f)
+			}
+			slog.Warn("payout alias resolution failed", "payout_id", p.PayoutID, "error", err)
+			return
+		}
+		result, err := s.connector.CreatePayout(ctx, p.Route, providerPayout, "payout:"+p.PayoutID)
 		if err != nil {
 			if errors.Is(err, core.ErrProviderRejected) {
 				f := transition("pending_provider")
@@ -184,6 +212,35 @@ func (s *Payouts) process(ctx context.Context, p core.Payout) {
 		}
 		_, _ = s.store.TransitionPayout(ctx, p.PayoutID, next, transition(p.OperationalStatus))
 	}
+}
+
+func (s *Payouts) resolveDestination(ctx context.Context, p core.Payout) (core.Payout, error) {
+	if p.Destination.Country != "AR" || !isAliasAccount(p.Destination.Rail) {
+		return p, nil
+	}
+	if s.aliases == nil {
+		return p, errors.New("ARS alias resolver is not configured")
+	}
+	resolved, err := s.aliases.ResolveAlias(ctx, stringValue(p.Destination.Rail, "accountNumber"))
+	if err != nil {
+		return p, err
+	}
+	if len(resolved.AccountNumber) != 22 {
+		return p, errors.New("alias resolver returned an invalid account number")
+	}
+	rail := make(map[string]any, len(p.Destination.Rail))
+	for key, value := range p.Destination.Rail {
+		rail[key] = value
+	}
+	rail["accountType"] = "cbu"
+	rail["accountNumber"] = resolved.AccountNumber
+	p.Destination.Rail = rail
+	return p, nil
+}
+
+func isAliasAccount(rail map[string]any) bool {
+	accountType := strings.ToLower(strings.TrimSpace(stringValue(rail, "accountType")))
+	return accountType == "alias" || accountType == "alias_cbu"
 }
 func (s *Payouts) applyProvider(ctx context.Context, p core.Payout, result core.ProviderPayout) {
 	next := "processing"

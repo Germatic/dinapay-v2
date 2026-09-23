@@ -18,6 +18,12 @@ type PayoutConnector interface {
 	CancelPayout(context.Context, RouteDecision, Payout, string) (ProviderPayout, error)
 }
 
+// ARSAliasResolver converts a COELSA alias into the 22-digit account identifier
+// required by providers that do not accept aliases directly.
+type ARSAliasResolver interface {
+	ResolveAlias(context.Context, string) (ResolvedBankAccount, error)
+}
+
 // LegacyRefunds is a temporary anti-corruption port used while V1 payments
 // remain operational. The raw credential is forwarded only to the loopback V1
 // API after V2 authentication and is never persisted.

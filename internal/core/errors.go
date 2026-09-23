@@ -32,6 +32,13 @@ type ProviderRejectedError struct {
 func (e *ProviderRejectedError) Error() string { return e.Message }
 func (e *ProviderRejectedError) Unwrap() error { return ErrProviderRejected }
 
+type AliasResolutionError struct {
+	Message   string
+	Permanent bool
+}
+
+func (e *AliasResolutionError) Error() string { return e.Message }
+
 type ValidationError struct {
 	Field   string
 	Rule    string

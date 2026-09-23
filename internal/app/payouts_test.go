@@ -37,10 +37,23 @@ type payoutConnectorStub struct {
 	get           core.ProviderPayout
 	getErr        error
 	creates, gets int
+	lastCreate    core.Payout
 }
 
-func (s *payoutConnectorStub) CreatePayout(context.Context, core.RouteDecision, core.Payout, string) (core.ProviderPayout, error) {
+type aliasResolverStub struct {
+	alias    string
+	resolved core.ResolvedBankAccount
+	err      error
+}
+
+func (s *aliasResolverStub) ResolveAlias(_ context.Context, alias string) (core.ResolvedBankAccount, error) {
+	s.alias = alias
+	return s.resolved, s.err
+}
+
+func (s *payoutConnectorStub) CreatePayout(_ context.Context, _ core.RouteDecision, payout core.Payout, _ string) (core.ProviderPayout, error) {
 	s.creates++
+	s.lastCreate = payout
 	return s.create, s.createErr
 }
 func (s *payoutConnectorStub) GetPayout(context.Context, core.RouteDecision, core.Payout) (core.ProviderPayout, error) {
@@ -183,6 +196,42 @@ func TestPayoutPreservesProviderPricingForTransition(t *testing.T) {
 	pricing, ok := store.transitions[0].fields["providerPricing"].(map[string]any)
 	if !ok || pricing["fixedFee"] != "0.60" {
 		t.Fatalf("provider pricing=%#v", store.transitions[0].fields["providerPricing"])
+	}
+}
+
+func TestPayoutResolvesAliasBeforeCallingConnector(t *testing.T) {
+	store := &payoutStoreStub{}
+	connector := &payoutConnectorStub{create: core.ProviderPayout{ProviderPayoutID: "provider-1", Status: "processing"}}
+	resolver := &aliasResolverStub{resolved: core.ResolvedBankAccount{AccountNumber: "0070327530004025541644", TaxID: "20221370075", HolderName: "Gerardo Ratto"}}
+	svc := NewPayouts(store, nil, connector, &payoutLedgerStub{}, nil).WithARSAliasResolver(resolver)
+	p := testPayout("pending_provider")
+	p.Destination = core.PayoutDestination{Country: "AR", Currency: "ARS", Rail: map[string]any{"type": "ar_bank_transfer", "accountType": "alias", "accountNumber": "rattop"}}
+	svc.process(context.Background(), p)
+	if resolver.alias != "rattop" || connector.creates != 1 {
+		t.Fatalf("alias=%q creates=%d", resolver.alias, connector.creates)
+	}
+	if got := stringValue(connector.lastCreate.Destination.Rail, "accountNumber"); got != "0070327530004025541644" {
+		t.Fatalf("provider accountNumber=%q", got)
+	}
+	if got := stringValue(connector.lastCreate.Destination.Rail, "accountType"); got != "cbu" {
+		t.Fatalf("provider accountType=%q", got)
+	}
+}
+
+func TestInvalidAliasCompensatesWithoutCallingConnector(t *testing.T) {
+	store := &payoutStoreStub{}
+	connector := &payoutConnectorStub{}
+	resolver := &aliasResolverStub{err: &core.AliasResolutionError{Message: "alias does not exist", Permanent: true}}
+	svc := NewPayouts(store, nil, connector, &payoutLedgerStub{}, nil).WithARSAliasResolver(resolver)
+	p := testPayout("pending_provider")
+	p.Destination = core.PayoutDestination{Country: "AR", Currency: "ARS", Rail: map[string]any{"type": "ar_bank_transfer", "accountType": "alias", "accountNumber": "missing.alias"}}
+	svc.process(context.Background(), p)
+	if connector.creates != 0 || len(store.transitions) != 1 || store.transitions[0].next != "pending_compensation" {
+		t.Fatalf("creates=%d transitions=%#v", connector.creates, store.transitions)
+	}
+	failure, ok := store.transitions[0].fields["failure"].(*contract.Failure)
+	if !ok || failure.Code != string(contract.PayoutInvalidDestination) {
+		t.Fatalf("failure=%#v", store.transitions[0].fields["failure"])
 	}
 }
 func TestPayoutInsufficientBalanceNeverCallsProvider(t *testing.T) {

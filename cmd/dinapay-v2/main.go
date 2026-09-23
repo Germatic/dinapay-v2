@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Germatic/dinapay-v2/internal/adapters/arsalias"
 	"github.com/Germatic/dinapay-v2/internal/adapters/dinacore"
 	"github.com/Germatic/dinapay-v2/internal/adapters/httpclient"
 	"github.com/Germatic/dinapay-v2/internal/adapters/memory"
@@ -78,6 +79,15 @@ func main() {
 			payoutLedger = ledger.(*dinacore.Client)
 		}
 		payouts = app.NewPayouts(nativePayouts, httpclient.NewRouter(env("ROUTER_URL", "http://localhost:8091"), os.Getenv("SERVICE_TOKEN")), connectors, payoutLedger, auth)
+		if resolver, err := arsalias.NewCoinag(arsalias.CoinagConfig{
+			BaseURL: os.Getenv("COINAG_BASE_URL"), TokenURL: os.Getenv("COINAG_TOKEN_URL"),
+			ClientID: os.Getenv("COINAG_CLIENT_ID"), ClientSecret: os.Getenv("COINAG_CLIENT_SECRET"),
+			Username: os.Getenv("COINAG_USERNAME"), Password: os.Getenv("COINAG_PASSWORD"),
+		}); err == nil {
+			payouts.WithARSAliasResolver(resolver)
+		} else {
+			slog.Warn("ARS alias payouts disabled", "error", err)
+		}
 		if payoutLedger != nil {
 			go payouts.Run(context.Background())
 		}
