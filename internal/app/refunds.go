@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"fmt"
 	contract "github.com/Germatic/dinapay-contracts/go/connectorcontract/failures"
 	"github.com/Germatic/dinapay-v2/internal/core"
 	"log/slog"
@@ -140,13 +141,13 @@ func (s *Refunds) process(ctx context.Context, r core.Refund) {
 		_, _ = s.native.TransitionRefund(ctx, r.RefundID, "pending_provider", f)
 	case "pending_provider":
 		p := core.Payment{TransactionID: r.TransactionID, AccountID: r.AccountID, MerchantID: r.MerchantID, ProviderPaymentID: r.ProviderPaymentID, Route: r.Route}
-		result, err := s.connector.CreateRefund(ctx, r.Route, p, r, "refund:"+r.RefundID)
-		if err != nil {
-			if errors.Is(err, core.ErrProviderRejected) {
+		result, createErr := s.connector.CreateRefund(ctx, r.Route, p, r, "refund:"+r.RefundID)
+		if createErr != nil {
+			if errors.Is(createErr, core.ErrProviderRejected) {
 				failure := contract.NewRefund(contract.RefundRejected)
-				providerFailure := contract.ProviderFailure{Code: "provider_rejected", Message: err.Error()}
+				providerFailure := contract.ProviderFailure{Code: "provider_rejected", Message: createErr.Error()}
 				var rejected *core.ProviderRejectedError
-				if errors.As(err, &rejected) {
+				if errors.As(createErr, &rejected) {
 					if rejected.Failure != nil && contract.ValidRefund(*rejected.Failure) {
 						failure = *rejected.Failure
 					}
@@ -155,18 +156,30 @@ func (s *Refunds) process(ctx context.Context, r core.Refund) {
 					}
 				}
 				f := transition("pending_provider")
-				f["lastError"] = err.Error()
+				f["lastError"] = createErr.Error()
 				f["failure"] = failure
 				f["providerFailure"] = providerFailure
 				updated, transitionErr := s.native.TransitionRefund(ctx, r.RefundID, "pending_compensation", f)
 				if transitionErr == nil {
 					s.observe(updated)
 				}
-				slog.Warn("refund rejected by provider", "refund_id", r.RefundID, "provider", r.Route.Provider, "provider_connection_id", r.Route.ProviderConnectionID, "error", err)
+				slog.Warn("refund rejected by provider", "refund_id", r.RefundID, "provider", r.Route.Provider, "provider_connection_id", r.Route.ProviderConnectionID, "error", createErr)
 				return
 			}
-			result, err = s.connector.GetRefund(ctx, r.Route, r)
-			if err != nil {
+			var recoveryErr error
+			result, recoveryErr = s.connector.GetRefund(ctx, r.Route, r)
+			if recoveryErr != nil {
+				// The create call may have reached the provider. Stop automatic
+				// submission retries until reconciliation establishes the outcome;
+				// retrying a refund blindly can pay the customer twice.
+				f := transition("pending_provider")
+				f["lastError"] = fmt.Sprintf("create refund: %v; recover refund: %v", createErr, recoveryErr)
+				_, transitionErr := s.native.TransitionRefund(ctx, r.RefundID, "provider_unknown", f)
+				if transitionErr != nil {
+					slog.Error("refund ambiguous transition failed", "refund_id", r.RefundID, "provider", r.Route.Provider, "provider_connection_id", r.Route.ProviderConnectionID, "error", transitionErr)
+					return
+				}
+				slog.Error("refund requires reconciliation", "refund_id", r.RefundID, "transaction_id", r.TransactionID, "provider", r.Route.Provider, "provider_connection_id", r.Route.ProviderConnectionID, "create_error", createErr, "recovery_error", recoveryErr)
 				return
 			}
 		}

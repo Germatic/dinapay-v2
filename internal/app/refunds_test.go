@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	contract "github.com/Germatic/dinapay-contracts/go/connectorcontract/failures"
@@ -210,6 +211,28 @@ func TestRefundAmbiguousCreateQueriesProviderBeforeRetry(t *testing.T) {
 	}
 	if len(store.transitions) != 1 || store.transitions[0].next != "succeeded" {
 		t.Fatalf("unexpected transitions: %#v", store.transitions)
+	}
+}
+
+func TestRefundAmbiguousCreateStopsAutomaticRetriesWhenRecoveryFails(t *testing.T) {
+	store := &refundStoreStub{}
+	connector := &refundConnectorStub{
+		createErr: errors.New("provider timeout"),
+		getErr:    errors.New("refund outcome unavailable"),
+	}
+	svc := NewRefunds(nil, store, nil, connector, &refundLedgerStub{})
+
+	svc.process(context.Background(), testRefund("pending_provider"))
+
+	if connector.createCalls != 1 || connector.getCalls != 1 {
+		t.Fatalf("create calls=%d query calls=%d", connector.createCalls, connector.getCalls)
+	}
+	if len(store.transitions) != 1 || store.transitions[0].expected != "pending_provider" || store.transitions[0].next != "provider_unknown" {
+		t.Fatalf("unexpected transitions: %#v", store.transitions)
+	}
+	lastError, _ := store.transitions[0].fields["lastError"].(string)
+	if !strings.Contains(lastError, "provider timeout") || !strings.Contains(lastError, "refund outcome unavailable") {
+		t.Fatalf("lastError=%q", lastError)
 	}
 }
 
