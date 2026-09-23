@@ -244,6 +244,18 @@ func TestDashboardPaymentReadUsesDedicatedCredentialAndFilters(t *testing.T) {
 	}
 }
 
+func TestDashboardPaymentPageIncludesRefunds(t *testing.T) {
+	page := dashboardPaymentPage(core.PaymentPage{Data: []core.Payment{{
+		TransactionID: "payment-1",
+		Refunds:       []core.Refund{{RefundID: "refund-1", TransactionID: "payment-1", Status: "succeeded", Amount: "10.00", Currency: "ARS"}},
+	}}})
+	items, _ := page["data"].([]map[string]any)
+	refunds, ok := items[0]["refunds"].([]core.Refund)
+	if !ok || len(refunds) != 1 || refunds[0].RefundID != "refund-1" {
+		t.Fatalf("refunds missing from dashboard payment: %#v", items[0])
+	}
+}
+
 func TestDashboardRowsExposeScopeOnlyOnInternalRead(t *testing.T) {
 	reader := &dashboardReaderStub{}
 	readerResult := core.PaymentPage{Data: []core.Payment{{TransactionID: "tx-1", AccountID: "account-1", MerchantID: "merchant-1", Status: "confirmed", Amount: "1.00", Currency: "USD", Origin: "v1"}}}

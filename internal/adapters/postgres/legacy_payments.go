@@ -32,8 +32,51 @@ func (s *Store) List(ctx context.Context, accountID, merchantID string, options 
 }
 
 func (s *Store) ListDashboardPayments(ctx context.Context, accountID, merchantID string, options core.PaymentListOptions) (core.PaymentPage, error) {
-	return s.listConsolidated(ctx, dashboardConsolidatedSelect, accountID, merchantID, options)
+	page, err := s.listConsolidated(ctx, dashboardConsolidatedSelect, accountID, merchantID, options)
+	if err != nil || len(page.Data) == 0 {
+		return page, err
+	}
+	ids := make([]string, 0, len(page.Data))
+	for _, payment := range page.Data {
+		ids = append(ids, payment.TransactionID)
+	}
+	rows, err := s.db.Query(ctx, dashboardRefundsSelect, ids)
+	if err != nil {
+		return core.PaymentPage{}, err
+	}
+	defer rows.Close()
+	byPayment := map[string][]core.Refund{}
+	for rows.Next() {
+		var r core.Refund
+		var failure, metadata []byte
+		if err := rows.Scan(&r.RefundID, &r.TransactionID, &r.ExternalID, &r.Status, &r.Amount, &r.Currency, &r.Reason, &r.CreationDate, &r.CompletionDate, &r.ProviderReference, &failure, &metadata); err != nil {
+			return core.PaymentPage{}, err
+		}
+		_ = json.Unmarshal(failure, &r.Failure)
+		_ = json.Unmarshal(metadata, &r.Metadata)
+		byPayment[r.TransactionID] = append(byPayment[r.TransactionID], r)
+	}
+	if err := rows.Err(); err != nil {
+		return core.PaymentPage{}, err
+	}
+	for i := range page.Data {
+		page.Data[i].Refunds = byPayment[page.Data[i].TransactionID]
+	}
+	return page, nil
 }
+
+const dashboardRefundsSelect = `
+	SELECT refund_id::text,transaction_id::text,external_id,
+		CASE WHEN status='succeeded' THEN 'succeeded' WHEN status='failed' THEN 'failed' ELSE 'pending' END,
+		amount::text,currency,COALESCE(reason,''),creation_date,completion_date,COALESCE(provider_refund_id,''),COALESCE(failure,'{}'::jsonb),COALESCE(metadata,'{}'::jsonb)
+	FROM dinapay_v2_refunds WHERE transaction_id = ANY($1::uuid[])
+	UNION ALL
+	SELECT id::text,payment_id::text,COALESCE(external_id,''),
+		CASE WHEN status='succeeded' THEN 'succeeded' WHEN status='failed' THEN 'failed' ELSE 'pending' END,
+		amount::text,currency,COALESCE(reason,''),created_at,completed_at,COALESCE(provider_refund_id,''),
+		jsonb_strip_nulls(jsonb_build_object('code',NULLIF(error_code,''),'message',NULLIF(error_message,''))),'{}'::jsonb
+	FROM payment_refunds WHERE payment_id = ANY($1::uuid[])
+	ORDER BY creation_date DESC`
 
 func (s *Store) listConsolidated(ctx context.Context, query, accountID, merchantID string, options core.PaymentListOptions) (core.PaymentPage, error) {
 	limit := options.Limit

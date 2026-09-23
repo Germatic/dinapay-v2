@@ -248,6 +248,9 @@ func dashboardPaymentPage(page core.PaymentPage) map[string]any {
 		item["accountId"] = payment.AccountID
 		item["merchantId"] = payment.MerchantID
 		item["origin"] = payment.Origin
+		if len(payment.Refunds) > 0 {
+			item["refunds"] = payment.Refunds
+		}
 		data = append(data, item)
 	}
 	response := map[string]any{"data": data, "hasMore": page.HasMore}

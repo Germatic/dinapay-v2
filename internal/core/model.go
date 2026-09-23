@@ -57,6 +57,7 @@ type Payment struct {
 	Route             RouteDecision  `json:"-"`
 	Version           int64          `json:"-"`
 	Origin            string         `json:"-"`
+	Refunds           []Refund       `json:"-"`
 }
 
 type PaymentListOptions struct {
