@@ -17,12 +17,15 @@ func TestHTTPMetricsUseNormalizedRouteAndStatusClass(t *testing.T) {
 	}
 }
 
-func TestPersistentMetricsExposeUnknownPayouts(t *testing.T) {
-	SetPersistent(0, 0, 0, 0, 2, 90)
+func TestPersistentMetricsExposeUnknownProviderOutcomes(t *testing.T) {
+	SetPersistent(0, 0, 0, 0, 2, 90, 1, 45)
 	recorder := httptest.NewRecorder()
 	Handler().ServeHTTP(recorder, httptest.NewRequest("GET", "/metrics", nil))
 	body := recorder.Body.String()
 	if !strings.Contains(body, "dinapay_payout_provider_unknown 2") || !strings.Contains(body, "dinapay_payout_provider_unknown_oldest_seconds 90") {
+		t.Fatalf("metrics=%s", body)
+	}
+	if !strings.Contains(body, "dinapay_refund_provider_unknown 1") || !strings.Contains(body, "dinapay_refund_provider_unknown_oldest_seconds 45") {
 		t.Fatalf("metrics=%s", body)
 	}
 }

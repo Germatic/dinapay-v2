@@ -76,7 +76,7 @@ func providerFailureCounter(key providerFailureKey) *atomic.Uint64 {
 	return counter
 }
 
-func SetPersistent(webhooks, webhookAge, ledger, ledgerAge, unknownPayouts, unknownPayoutAge float64) {
+func SetPersistent(webhooks, webhookAge, ledger, ledgerAge, unknownPayouts, unknownPayoutAge, unknownRefunds, unknownRefundAge float64) {
 	metrics.Lock()
 	defer metrics.Unlock()
 	metrics.gauges["dinapay_webhook_outbox_pending"] = webhooks
@@ -85,6 +85,8 @@ func SetPersistent(webhooks, webhookAge, ledger, ledgerAge, unknownPayouts, unkn
 	metrics.gauges["dinapay_ledger_outbox_oldest_seconds"] = ledgerAge
 	metrics.gauges["dinapay_payout_provider_unknown"] = unknownPayouts
 	metrics.gauges["dinapay_payout_provider_unknown_oldest_seconds"] = unknownPayoutAge
+	metrics.gauges["dinapay_refund_provider_unknown"] = unknownRefunds
+	metrics.gauges["dinapay_refund_provider_unknown_oldest_seconds"] = unknownRefundAge
 }
 
 func ObserveHTTP(method, route string, status int, elapsed time.Duration) {

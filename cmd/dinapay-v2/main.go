@@ -115,7 +115,7 @@ func collectMetrics(ctx context.Context, pool *pgxpool.Pool) {
 	ticker := time.NewTicker(15 * time.Second)
 	defer ticker.Stop()
 	for {
-		var webhooks, webhookAge, ledger, ledgerAge, unknownPayouts, unknownPayoutAge float64
+		var webhooks, webhookAge, ledger, ledgerAge, unknownPayouts, unknownPayoutAge, unknownRefunds, unknownRefundAge float64
 		err := pool.QueryRow(ctx, `SELECT count(*)::float8,COALESCE(EXTRACT(EPOCH FROM now()-min(created_at)),0)::float8 FROM webhook_deliveries WHERE status='pending'`).Scan(&webhooks, &webhookAge)
 		if err == nil {
 			err = pool.QueryRow(ctx, `SELECT count(*)::float8,COALESCE(EXTRACT(EPOCH FROM now()-min(created_at)),0)::float8 FROM dinacore_balance_outbox WHERE sent=false`).Scan(&ledger, &ledgerAge)
@@ -124,7 +124,10 @@ func collectMetrics(ctx context.Context, pool *pgxpool.Pool) {
 			err = pool.QueryRow(ctx, `SELECT count(*)::float8,COALESCE(EXTRACT(EPOCH FROM now()-min(creation_date)),0)::float8 FROM dinapay_v2_payouts WHERE status='provider_unknown'`).Scan(&unknownPayouts, &unknownPayoutAge)
 		}
 		if err == nil {
-			observability.SetPersistent(webhooks, webhookAge, ledger, ledgerAge, unknownPayouts, unknownPayoutAge)
+			err = pool.QueryRow(ctx, `SELECT count(*)::float8,COALESCE(EXTRACT(EPOCH FROM now()-min(creation_date)),0)::float8 FROM dinapay_v2_refunds WHERE status='provider_unknown'`).Scan(&unknownRefunds, &unknownRefundAge)
+		}
+		if err == nil {
+			observability.SetPersistent(webhooks, webhookAge, ledger, ledgerAge, unknownPayouts, unknownPayoutAge, unknownRefunds, unknownRefundAge)
 		}
 		select {
 		case <-ctx.Done():
