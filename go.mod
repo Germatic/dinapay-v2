@@ -3,7 +3,7 @@ module github.com/Germatic/dinapay-v2
 go 1.24
 
 require (
-	github.com/Germatic/dinapay-contracts/go/connectorcontract v0.2.0
+	github.com/Germatic/dinapay-contracts/go/connectorcontract v0.2.1
 	github.com/jackc/pgx/v5 v5.5.4
 )
 

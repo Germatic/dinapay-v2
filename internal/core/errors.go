@@ -3,6 +3,8 @@ package core
 import (
 	"errors"
 	"fmt"
+
+	contract "github.com/Germatic/dinapay-contracts/go/connectorcontract/failures"
 )
 
 var (
@@ -18,6 +20,17 @@ var (
 	ErrExternalIDConflict  = errors.New("externalId already exists for merchant")
 	ErrRouteUnsupported    = errors.New("requested payment route is not supported")
 )
+
+// ProviderRejectedError carries a connector-normalized failure. ProviderFailure
+// is internal-only and must not be returned in merchant-facing responses.
+type ProviderRejectedError struct {
+	Message         string
+	Failure         *contract.Failure
+	ProviderFailure *contract.ProviderFailure
+}
+
+func (e *ProviderRejectedError) Error() string { return e.Message }
+func (e *ProviderRejectedError) Unwrap() error { return ErrProviderRejected }
 
 type ValidationError struct {
 	Field   string

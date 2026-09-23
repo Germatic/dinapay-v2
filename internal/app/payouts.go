@@ -143,6 +143,15 @@ func (s *Payouts) process(ctx context.Context, p core.Payout) {
 				// reconciliation. Public responses continue to expose only the
 				// canonical Dinaria failure catalog.
 				f["lastError"] = err.Error()
+				var rejected *core.ProviderRejectedError
+				if errors.As(err, &rejected) {
+					if rejected.Failure != nil {
+						f["failure"] = rejected.Failure
+					}
+					if rejected.ProviderFailure != nil {
+						f["providerFailure"] = rejected.ProviderFailure
+					}
+				}
 				_, _ = s.store.TransitionPayout(ctx, p.PayoutID, "pending_compensation", f)
 				slog.Warn("payout rejected by provider", "payout_id", p.PayoutID, "provider", p.Route.Provider, "provider_connection_id", p.Route.ProviderConnectionID, "error", err)
 				return

@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	contract "github.com/Germatic/dinapay-contracts/go/connectorcontract/failures"
 	"github.com/Germatic/dinapay-v2/internal/core"
 )
 
@@ -228,7 +229,9 @@ func postJSON(ctx context.Context, client *http.Client, url, token, idempotencyK
 		err := fmt.Errorf("upstream status %d: %s", resp.StatusCode, b)
 		var problem struct {
 			Error struct {
-				Code string `json:"code"`
+				Code            string                    `json:"code"`
+				Failure         *contract.Failure         `json:"failure,omitempty"`
+				ProviderFailure *contract.ProviderFailure `json:"providerFailure,omitempty"`
 			} `json:"error"`
 		}
 		_ = json.Unmarshal(b, &problem)
@@ -236,6 +239,9 @@ func postJSON(ctx context.Context, client *http.Client, url, token, idempotencyK
 			return fmt.Errorf("%w: %v", core.ErrDestinationInUse, err)
 		}
 		if resp.StatusCode == http.StatusBadRequest || resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden || resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusConflict || resp.StatusCode == http.StatusUnprocessableEntity {
+			if problem.Error.Failure != nil || problem.Error.ProviderFailure != nil {
+				return &core.ProviderRejectedError{Message: err.Error(), Failure: problem.Error.Failure, ProviderFailure: problem.Error.ProviderFailure}
+			}
 			return fmt.Errorf("%w: %v", core.ErrProviderRejected, err)
 		}
 		return err

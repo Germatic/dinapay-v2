@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"testing"
 
+	contract "github.com/Germatic/dinapay-contracts/go/connectorcontract/failures"
 	"github.com/Germatic/dinapay-v2/internal/core"
 )
 
@@ -224,6 +225,25 @@ func TestPayoutProviderRejectionErrorCompensatesWithoutLookup(t *testing.T) {
 	svc.process(context.Background(), testPayout("pending_compensation"))
 	if ledger.credits != 1 || store.transitions[1].next != "failed" {
 		t.Fatalf("credits=%d transitions=%#v", ledger.credits, store.transitions)
+	}
+}
+
+func TestPayoutPersistsCanonicalAndProviderFailure(t *testing.T) {
+	store := &payoutStoreStub{}
+	failure := contract.NewPayout(contract.PayoutInvalidAmount)
+	providerFailure := contract.ProviderFailure{Code: "E_007", Message: "Monto invalido"}
+	connector := &payoutConnectorStub{createErr: &core.ProviderRejectedError{Message: "upstream rejected payout", Failure: &failure, ProviderFailure: &providerFailure}}
+	NewPayouts(store, nil, connector, &payoutLedgerStub{}, nil).process(context.Background(), testPayout("pending_provider"))
+	if len(store.transitions) != 1 || store.transitions[0].next != "pending_compensation" {
+		t.Fatalf("transitions=%#v", store.transitions)
+	}
+	gotFailure, ok := store.transitions[0].fields["failure"].(*contract.Failure)
+	if !ok || gotFailure.Code != string(contract.PayoutInvalidAmount) {
+		t.Fatalf("failure=%#v", store.transitions[0].fields["failure"])
+	}
+	gotProvider, ok := store.transitions[0].fields["providerFailure"].(*contract.ProviderFailure)
+	if !ok || gotProvider.Code != "E_007" {
+		t.Fatalf("providerFailure=%#v", store.transitions[0].fields["providerFailure"])
 	}
 }
 func TestPayoutAmbiguousCreateQueriesBeforeRetry(t *testing.T) {

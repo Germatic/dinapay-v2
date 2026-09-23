@@ -10,6 +10,7 @@ const (
 	PayoutUnknownError           PayoutCode = "unknown_error"
 	PayoutInvalidRemitterData    PayoutCode = "invalid_remitter_data"
 	PayoutInvalidBeneficiaryData PayoutCode = "invalid_beneficiary_data"
+	PayoutInvalidAmount          PayoutCode = "invalid_amount"
 	PayoutInvalidDestination     PayoutCode = "invalid_destination"
 	PayoutDestinationRejected    PayoutCode = "destination_rejected"
 	PayoutBeneficiaryBlocked     PayoutCode = "beneficiary_blocked"
@@ -20,6 +21,7 @@ const (
 var payouts = catalog(map[string]definition{
 	"invalid_remitter_data":    {"validation", "Los datos del remitente no son válidos."},
 	"invalid_beneficiary_data": {"validation", "Los datos del beneficiario no son válidos."},
+	"invalid_amount":           {"validation", "El monto indicado no es válido para esta operación."},
 	"invalid_destination":      {"destination", "El destino indicado no es válido."},
 	"destination_rejected":     {"destination", "La entidad receptora rechazó la operación."},
 	"beneficiary_blocked":      {"compliance", "El beneficiario no puede recibir la operación."},
