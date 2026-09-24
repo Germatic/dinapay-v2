@@ -93,8 +93,11 @@ func TestHostedCheckoutRendersSingleUseBankTransferWithoutReference(t *testing.T
 	page := httptest.NewRecorder()
 	handler.ServeHTTP(page, httptest.NewRequest(http.MethodGet, "/pay/"+transactionID, nil))
 	body := page.Body.String()
-	if page.Code != http.StatusOK || !strings.Contains(body, "CLABE de un solo uso") || !strings.Contains(body, "727580001200000220") || !strings.Contains(body, "por SPEI") {
+	if page.Code != http.StatusOK || !strings.Contains(body, "CLABE de un solo uso") || !strings.Contains(body, "727580001200000220") || !strings.Contains(body, "Realizá una transferencia a la siguiente CLABE") {
 		t.Fatalf("status=%d body=%s", page.Code, body)
+	}
+	if strings.Contains(body, "por SPEI") || strings.Contains(body, "AR_BANK_TRANSFER") || strings.Contains(body, "ar_bank_transfer") {
+		t.Fatalf("checkout exposed a technical rail identifier: %s", body)
 	}
 	if !strings.Contains(body, "importe exacto") || !strings.Contains(body, "no la reutilices") || !strings.Contains(body, `data-copy="bank-account"`) {
 		t.Fatalf("checkout omitted single-use guidance: %s", body)
