@@ -16,12 +16,14 @@ var (
 )
 
 type Info struct {
-	Service     string `json:"service"`
-	Version     string `json:"version"`
-	Commit      string `json:"commit"`
-	BuiltAt     string `json:"builtAt"`
-	GoVersion   string `json:"goVersion"`
-	Environment string `json:"environment"`
+	Service         string `json:"service"`
+	Repository      string `json:"repository"`
+	ContractVersion string `json:"contractVersion"`
+	Version         string `json:"version"`
+	Commit          string `json:"commit"`
+	BuiltAt         string `json:"builtAt"`
+	GoVersion       string `json:"goVersion"`
+	Environment     string `json:"environment"`
 }
 
 func Current(service string) Info {
@@ -51,5 +53,5 @@ func Current(service string) Info {
 	if environment == "" {
 		environment = "unknown"
 	}
-	return Info{Service: service, Version: version, Commit: commit, BuiltAt: builtAt, GoVersion: runtime.Version(), Environment: environment}
+	return Info{Service: service, Repository: "github.com/Germatic/dinapay-v2", ContractVersion: "v2", Version: version, Commit: commit, BuiltAt: builtAt, GoVersion: runtime.Version(), Environment: environment}
 }
