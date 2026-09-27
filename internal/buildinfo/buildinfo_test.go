@@ -12,6 +12,9 @@ func TestCurrentReturnsCanonicalMetadata(t *testing.T) {
 	t.Cleanup(func() { Version, Commit, BuiltAt = oldVersion, oldCommit, oldBuiltAt })
 
 	got := Current("service-under-test")
+	if got.Repository != "github.com/Germatic/dinapay-v2" || got.ContractVersion != "v2" {
+		t.Fatalf("unexpected release identity: %+v", got)
+	}
 	if got.Service != "service-under-test" || got.Version != "2.3.4" || got.Commit != "abc123" || got.BuiltAt != "2026-09-22T00:00:00Z" || got.Environment != "sandbox" {
 		t.Fatalf("unexpected metadata: %+v", got)
 	}
