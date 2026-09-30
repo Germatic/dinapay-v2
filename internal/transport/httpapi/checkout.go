@@ -13,6 +13,7 @@ import (
 
 	"github.com/Germatic/dinapay-v2/internal/app"
 	"github.com/Germatic/dinapay-v2/internal/core"
+	qrcode "github.com/skip2/go-qrcode"
 )
 
 type checkoutPage struct {
@@ -147,7 +148,16 @@ func checkoutQRImage(paymentData map[string]any) template.URL {
 		encoded = encoded[comma+1:]
 	}
 	if encoded == "" {
-		return ""
+		content, _ := qr["content"].(string)
+		content = strings.TrimSpace(content)
+		if content == "" || len(content) > 4096 {
+			return ""
+		}
+		png, err := qrcode.Encode(content, qrcode.Medium, 512)
+		if err != nil {
+			return ""
+		}
+		encoded = base64.StdEncoding.EncodeToString(png)
 	}
 	if _, err := base64.StdEncoding.DecodeString(encoded); err != nil {
 		return ""

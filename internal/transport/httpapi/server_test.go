@@ -67,6 +67,16 @@ func TestHostedCheckoutRendersSafeQRAndMinimalStatus(t *testing.T) {
 	}
 }
 
+func TestCheckoutQRImageRendersEMVContent(t *testing.T) {
+	image := checkoutQRImage(map[string]any{"type": "qr", "qr": map[string]any{"content": "000201010212...6304ABCD"}})
+	if !strings.HasPrefix(string(image), "data:image/png;base64,") {
+		t.Fatalf("EMV content was not rendered as a PNG data URL: %q", image)
+	}
+	if image := checkoutQRImage(map[string]any{"type": "qr", "qr": map[string]any{"content": strings.Repeat("x", 4097)}}); image != "" {
+		t.Fatalf("oversized QR content must not be rendered")
+	}
+}
+
 func TestHostedCheckoutRendersSingleUseBankTransferWithoutReference(t *testing.T) {
 	const transactionID = "72758000-1200-4000-8220-000000000001"
 	store := memory.NewStore()
