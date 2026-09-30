@@ -22,13 +22,14 @@ type AssetDefinition struct {
 // AssetCatalogVersion changes whenever the built-in monetary contract changes.
 // It is intentionally static for the production baseline; a later control-plane
 // implementation can publish the same model without changing validation rules.
-const AssetCatalogVersion = "2026-09-21"
+const AssetCatalogVersion = "2026-09-30"
 
 var assetCatalog = map[string]AssetDefinition{
 	"ARS":  {Code: "ARS", Type: AssetFiat, Decimals: 2},
 	"BRL":  {Code: "BRL", Type: AssetFiat, Decimals: 2},
 	"EUR":  {Code: "EUR", Type: AssetFiat, Decimals: 2},
 	"MXN":  {Code: "MXN", Type: AssetFiat, Decimals: 2},
+	"PEN":  {Code: "PEN", Type: AssetFiat, Decimals: 2},
 	"USD":  {Code: "USD", Type: AssetFiat, Decimals: 2},
 	"VES":  {Code: "VES", Type: AssetFiat, Decimals: 2},
 	"USDT": {Code: "USDT", Type: AssetCrypto, Decimals: 8},

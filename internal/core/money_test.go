@@ -12,6 +12,8 @@ func TestValidateMoneyUsesAssetPrecision(t *testing.T) {
 	}{
 		{amount: "1", currency: "ARS", valid: true},
 		{amount: "1.23", currency: "USD", valid: true},
+		{amount: "1.23", currency: "PEN", valid: true},
+		{amount: "1.234", currency: "PEN", valid: false},
 		{amount: "1.234", currency: "ARS", valid: false},
 		{amount: "0.12345678", currency: "USDT", valid: true},
 		{amount: "0.123456789", currency: "USDT", valid: false},
