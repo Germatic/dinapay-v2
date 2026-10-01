@@ -61,10 +61,16 @@ type Payments struct {
 	merchants    core.Authenticator
 	checkoutBase string
 	now          func() time.Time
+	dataPolicies core.DataPolicyObserver
 }
 
 func NewPayments(router core.Router, connector core.Connector, store core.PaymentStore, merchants core.Authenticator, checkoutBase string) *Payments {
 	return &Payments{router: router, connector: connector, store: store, merchants: merchants, checkoutBase: strings.TrimRight(checkoutBase, "/"), now: time.Now}
+}
+
+func (s *Payments) WithDataPolicyObserver(observer core.DataPolicyObserver) *Payments {
+	s.dataPolicies = observer
+	return s
 }
 
 func (s *Payments) Create(ctx context.Context, principal core.Principal, in core.CreatePayment, idempotencyKey string) (core.Payment, bool, error) {
@@ -110,6 +116,9 @@ func (s *Payments) Create(ctx context.Context, principal core.Principal, in core
 	})
 	if err != nil {
 		return core.Payment{}, false, fmt.Errorf("resolve route: %w", err)
+	}
+	if s.dataPolicies != nil {
+		s.dataPolicies.Observe(ctx, core.DataPolicyObservation{Resource: "payment", AccountID: principal.AccountID, MerchantID: merchantID, Provider: route.Provider, Country: country, Currency: in.Currency, PaymentMethod: in.PaymentMethod, Rail: route.Rail, DestinationMode: route.DestinationMode, Data: map[string]any{"customer": map[string]any(in.Customer)}})
 	}
 	payment := core.Payment{
 		TransactionID: txID, MerchantID: merchantID, AccountID: principal.AccountID,

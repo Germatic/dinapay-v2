@@ -39,6 +39,21 @@ their V1 behavior. V2 deliveries target registrations explicitly marked `2`.
 
 Provider credentials and provider payloads never enter this service.
 
+## Data-policy observation
+
+When `CONTROL_PLANE_URL` and `CONTROL_PLANE_RUNTIME_TOKEN` are configured,
+Dinapay V2 refreshes the active data-policy snapshot outside the transaction
+path. `DATA_POLICY_REFRESH_INTERVAL` defaults to `30s`. A failed refresh keeps
+the last known good snapshot; no payment or payout performs a synchronous
+Control Plane call.
+
+The initial rollout is observation-only. After routing, Dinapay combines
+global, account and merchant policies with the selected connector's immutable
+technical requirements. Missing required fields increment
+`dinapay_data_policy_missing_fields_total` and produce a structured internal
+log, but do not reject the transaction. Merchant IDs are intentionally absent
+from metric labels to keep cardinality bounded.
+
 ## Provider events
 
 Connectors publish the normalized contract to

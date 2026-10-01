@@ -126,3 +126,12 @@ type Authenticator interface {
 	Authenticate(context.Context, string) (Principal, error)
 	ResolveMerchant(context.Context, Principal, string) (string, error)
 }
+
+type DataPolicyObservation struct {
+	Resource, AccountID, MerchantID, Provider, Country, Currency, PaymentMethod, Rail, DestinationMode string
+	Data                                                                                               map[string]any
+}
+
+type DataPolicyObserver interface {
+	Observe(context.Context, DataPolicyObservation)
+}

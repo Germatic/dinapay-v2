@@ -12,12 +12,18 @@ import (
 )
 
 type Payouts struct {
-	store     core.PayoutStore
-	router    core.Router
-	connector core.PayoutConnector
-	ledger    core.PayoutLedger
-	auth      core.Authenticator
-	aliases   core.ARSAliasResolver
+	store        core.PayoutStore
+	router       core.Router
+	connector    core.PayoutConnector
+	ledger       core.PayoutLedger
+	auth         core.Authenticator
+	aliases      core.ARSAliasResolver
+	dataPolicies core.DataPolicyObserver
+}
+
+func (s *Payouts) WithDataPolicyObserver(observer core.DataPolicyObserver) *Payouts {
+	s.dataPolicies = observer
+	return s
 }
 
 func NewPayouts(store core.PayoutStore, router core.Router, connector core.PayoutConnector, ledger core.PayoutLedger, auth core.Authenticator) *Payouts {
@@ -63,6 +69,9 @@ func (s *Payouts) Create(ctx context.Context, principal core.Principal, key stri
 	route, err := s.router.Resolve(ctx, core.RouteRequest{RequestID: deterministicUUID(merchantID + ":payout-route:" + key), TransactionID: id, AccountID: principal.AccountID, MerchantID: merchantID, Operation: "payout", Amount: in.Source.Amount, Currency: in.Source.Currency, DestinationCurrency: in.Destination.Currency, MarketCountry: in.Destination.Country, Rail: stringValue(in.Destination.Rail, "type")})
 	if err != nil {
 		return core.Payout{}, false, err
+	}
+	if s.dataPolicies != nil {
+		s.dataPolicies.Observe(ctx, core.DataPolicyObservation{Resource: "payout", AccountID: principal.AccountID, MerchantID: merchantID, Provider: route.Provider, Country: in.Destination.Country, Currency: in.Source.Currency, Rail: stringValue(in.Destination.Rail, "type"), Data: map[string]any{"remitter": in.Remitter, "destination": map[string]any{"beneficiary": in.Destination.Beneficiary, "rail": in.Destination.Rail}}})
 	}
 	p, err := s.store.CompletePayout(ctx, principal, key, id, in, route)
 	if err != nil {

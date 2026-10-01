@@ -18,6 +18,7 @@ var buckets = [...]float64{.005, .01, .025, .05, .1, .25, .5, 1, 2.5, 5, 10}
 type httpKey struct{ method, route, status string }
 type durationKey struct{ method, route string }
 type providerFailureKey struct{ operation, provider, code string }
+type dataPolicyKey struct{ resource, provider, path, mode string }
 type histogram struct {
 	count   uint64
 	sum     float64
@@ -38,6 +39,43 @@ var metrics = struct {
 var providerFailures struct {
 	sync.Mutex
 	snapshot atomic.Pointer[map[providerFailureKey]*atomic.Uint64]
+}
+
+var dataPolicyMissing struct {
+	sync.Mutex
+	snapshot atomic.Pointer[map[dataPolicyKey]*atomic.Uint64]
+}
+
+func ObserveMissingDataField(resource, provider, path, mode string) {
+	if resource == "" || path == "" {
+		return
+	}
+	key := dataPolicyKey{resource: resource, provider: provider, path: path, mode: mode}
+	if current := dataPolicyMissing.snapshot.Load(); current != nil {
+		if counter := (*current)[key]; counter != nil {
+			counter.Add(1)
+			return
+		}
+	}
+	dataPolicyMissing.Lock()
+	defer dataPolicyMissing.Unlock()
+	current := dataPolicyMissing.snapshot.Load()
+	if current != nil {
+		if counter := (*current)[key]; counter != nil {
+			counter.Add(1)
+			return
+		}
+	}
+	next := map[dataPolicyKey]*atomic.Uint64{}
+	if current != nil {
+		for existing, counter := range *current {
+			next[existing] = counter
+		}
+	}
+	counter := &atomic.Uint64{}
+	counter.Add(1)
+	next[key] = counter
+	dataPolicyMissing.snapshot.Store(&next)
 }
 
 func ObserveProviderFailure(operation, provider, code string) {
@@ -137,6 +175,11 @@ func Handler() http.Handler {
 				if key.code == "unknown_error" {
 					lines = append(lines, fmt.Sprintf("dinapay_provider_unmapped_failures_total{service=%q,operation=%q,provider=%q} %d", service, key.operation, key.provider, value))
 				}
+			}
+		}
+		if missing := dataPolicyMissing.snapshot.Load(); missing != nil {
+			for key, counter := range *missing {
+				lines = append(lines, fmt.Sprintf("dinapay_data_policy_missing_fields_total{service=%q,resource=%q,provider=%q,path=%q,mode=%q} %d", service, key.resource, key.provider, key.path, key.mode, counter.Load()))
 			}
 		}
 		sort.Strings(lines)

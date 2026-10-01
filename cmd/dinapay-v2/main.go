@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/Germatic/dinapay-v2/internal/adapters/arsalias"
+	"github.com/Germatic/dinapay-v2/internal/adapters/datapolicy"
 	"github.com/Germatic/dinapay-v2/internal/adapters/dinacore"
 	"github.com/Germatic/dinapay-v2/internal/adapters/httpclient"
 	"github.com/Germatic/dinapay-v2/internal/adapters/memory"
@@ -61,6 +62,15 @@ func main() {
 		connectors, store, auth,
 		os.Getenv("CHECKOUT_BASE_URL"),
 	)
+	var dataPolicyObserver core.DataPolicyObserver
+	if baseURL, token := os.Getenv("CONTROL_PLANE_URL"), os.Getenv("CONTROL_PLANE_RUNTIME_TOKEN"); baseURL != "" && token != "" {
+		client := datapolicy.New(baseURL, token, env("DINARIA_ENVIRONMENT", "sandbox"), observability.ObserveMissingDataField)
+		dataPolicyObserver = client
+		payments.WithDataPolicyObserver(client)
+		go client.Run(context.Background(), envDuration("DATA_POLICY_REFRESH_INTERVAL", 30*time.Second))
+	} else {
+		slog.Warn("data policy observation disabled; control plane configuration is incomplete")
+	}
 	var ledger core.Ledger
 	if os.Getenv("DINACORE_BASE_URL") != "" && os.Getenv("DINACORE_API_KEY") != "" {
 		ledger = dinacore.New(os.Getenv("DINACORE_BASE_URL"), os.Getenv("DINACORE_API_KEY"))
@@ -79,6 +89,9 @@ func main() {
 			payoutLedger = ledger.(*dinacore.Client)
 		}
 		payouts = app.NewPayouts(nativePayouts, httpclient.NewRouter(env("ROUTER_URL", "http://localhost:8091"), os.Getenv("SERVICE_TOKEN")), connectors, payoutLedger, auth)
+		if dataPolicyObserver != nil {
+			payouts.WithDataPolicyObserver(dataPolicyObserver)
+		}
 		if resolver, err := arsalias.NewCoinag(arsalias.CoinagConfig{
 			BaseURL: os.Getenv("COINAG_BASE_URL"), TokenURL: os.Getenv("COINAG_TOKEN_URL"),
 			ClientID: os.Getenv("COINAG_CLIENT_ID"), ClientSecret: os.Getenv("COINAG_CLIENT_SECRET"),
@@ -140,6 +153,14 @@ func collectMetrics(ctx context.Context, pool *pgxpool.Pool) {
 func envInt(key string, fallback int) int {
 	value, err := strconv.Atoi(os.Getenv(key))
 	if err != nil || value < 1 {
+		return fallback
+	}
+	return value
+}
+
+func envDuration(key string, fallback time.Duration) time.Duration {
+	value, err := time.ParseDuration(os.Getenv(key))
+	if err != nil || value <= 0 {
 		return fallback
 	}
 	return value
