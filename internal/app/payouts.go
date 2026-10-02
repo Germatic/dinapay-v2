@@ -71,7 +71,9 @@ func (s *Payouts) Create(ctx context.Context, principal core.Principal, key stri
 		return core.Payout{}, false, err
 	}
 	if s.dataPolicies != nil {
-		s.dataPolicies.Observe(ctx, core.DataPolicyObservation{Resource: "payout", AccountID: principal.AccountID, MerchantID: merchantID, Provider: route.Provider, Country: in.Destination.Country, Currency: in.Source.Currency, Rail: stringValue(in.Destination.Rail, "type"), Data: map[string]any{"remitter": in.Remitter, "destination": map[string]any{"beneficiary": in.Destination.Beneficiary, "rail": in.Destination.Rail}}})
+		if err := s.dataPolicies.Evaluate(ctx, core.DataPolicyObservation{Resource: "payout", AccountID: principal.AccountID, MerchantID: merchantID, Provider: route.Provider, Country: in.Destination.Country, Currency: in.Source.Currency, Rail: stringValue(in.Destination.Rail, "type"), Data: map[string]any{"remitter": in.Remitter, "destination": map[string]any{"beneficiary": in.Destination.Beneficiary, "rail": in.Destination.Rail}}}); err != nil {
+			return core.Payout{}, false, err
+		}
 	}
 	p, err := s.store.CompletePayout(ctx, principal, key, id, in, route)
 	if err != nil {

@@ -118,7 +118,9 @@ func (s *Payments) Create(ctx context.Context, principal core.Principal, in core
 		return core.Payment{}, false, fmt.Errorf("resolve route: %w", err)
 	}
 	if s.dataPolicies != nil {
-		s.dataPolicies.Observe(ctx, core.DataPolicyObservation{Resource: "payment", AccountID: principal.AccountID, MerchantID: merchantID, Provider: route.Provider, Country: country, Currency: in.Currency, PaymentMethod: in.PaymentMethod, Rail: route.Rail, DestinationMode: route.DestinationMode, Data: map[string]any{"customer": map[string]any(in.Customer)}})
+		if err := s.dataPolicies.Evaluate(ctx, core.DataPolicyObservation{Resource: "payment", AccountID: principal.AccountID, MerchantID: merchantID, Provider: route.Provider, Country: country, Currency: in.Currency, PaymentMethod: in.PaymentMethod, Rail: route.Rail, DestinationMode: route.DestinationMode, Data: map[string]any{"customer": map[string]any(in.Customer)}}); err != nil {
+			return core.Payment{}, false, err
+		}
 	}
 	payment := core.Payment{
 		TransactionID: txID, MerchantID: merchantID, AccountID: principal.AccountID,

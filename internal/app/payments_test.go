@@ -47,6 +47,23 @@ func TestCreateValidatesAndPersistsReturnURLs(t *testing.T) {
 
 type connectorStub struct{}
 
+type dataPolicyStub struct{ err error }
+
+func (s dataPolicyStub) Evaluate(context.Context, core.DataPolicyObservation) error { return s.err }
+
+type countingConnectorStub struct{ creates int }
+
+func (s *countingConnectorStub) CreatePayment(ctx context.Context, route core.RouteDecision, payment core.Payment, successURL, cancelURL string) (core.ProviderPayment, error) {
+	s.creates++
+	return connectorStub{}.CreatePayment(ctx, route, payment, successURL, cancelURL)
+}
+func (*countingConnectorStub) CreateRefund(context.Context, core.RouteDecision, core.Payment, core.Refund, string) (core.ProviderRefund, error) {
+	return core.ProviderRefund{}, core.ErrUnsupported
+}
+func (*countingConnectorStub) GetRefund(context.Context, core.RouteDecision, core.Refund) (core.ProviderRefund, error) {
+	return core.ProviderRefund{}, core.ErrUnsupported
+}
+
 func (connectorStub) CreateRefund(context.Context, core.RouteDecision, core.Payment, core.Refund, string) (core.ProviderRefund, error) {
 	return core.ProviderRefund{}, core.ErrUnsupported
 }
@@ -56,6 +73,17 @@ func (connectorStub) GetRefund(context.Context, core.RouteDecision, core.Refund)
 
 func (connectorStub) CreatePayment(_ context.Context, _ core.RouteDecision, p core.Payment, _, _ string) (core.ProviderPayment, error) {
 	return core.ProviderPayment{TransactionID: p.TransactionID, Provider: "test", ProviderConnectionID: "connection1", ProviderPaymentID: "provider1", Status: "created", ExpiresAt: time.Date(2026, 9, 9, 19, 30, 0, 0, time.UTC), Completion: map[string]any{"type": "redirect", "links": map[string]any{"web": "https://example.com"}}}, nil
+}
+
+func TestCreateDoesNotInvokeConnectorWhenDataPolicyRejects(t *testing.T) {
+	connector := &countingConnectorStub{}
+	svc := NewPayments(routerStub{}, connector, memory.NewStore(), static.NewAuth("test-key=account1:merchant1"), "").WithDataPolicyObserver(dataPolicyStub{err: &core.MissingRequiredDataError{Fields: []string{"customer.email"}}})
+	in := core.CreatePayment{ExternalID: "policy-reject", Amount: "1.00", Currency: "ARS", PaymentMethod: "qr", Customer: core.Customer{"country": "AR"}}
+	_, _, err := svc.Create(context.Background(), core.Principal{AccountID: "account1", MerchantID: "merchant1"}, in, "policy-reject-key")
+	var missing *core.MissingRequiredDataError
+	if !errors.As(err, &missing) || connector.creates != 0 {
+		t.Fatalf("error=%#v connector creates=%d", err, connector.creates)
+	}
 }
 
 func TestCreateIsIdempotent(t *testing.T) {

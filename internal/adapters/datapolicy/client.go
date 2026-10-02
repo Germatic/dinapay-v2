@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"slices"
+	"sort"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -94,12 +95,13 @@ func (c *Client) refresh(ctx context.Context) {
 	slog.Info("data policy snapshot activated", "version", next.Version, "policies", len(next.Policies), "connectorRequirements", len(next.ConnectorRequirements))
 }
 
-func (c *Client) Observe(_ context.Context, input core.DataPolicyObservation) {
+func (c *Client) Evaluate(_ context.Context, input core.DataPolicyObservation) error {
 	current := c.current.Load()
 	if current == nil {
-		return
+		return nil
 	}
 	rules := resolve(*current, input)
+	missing := make([]string, 0)
 	for path, item := range rules {
 		if required(item, input.Rail) && !present(input.Data, path) {
 			mode := item.mode
@@ -110,8 +112,16 @@ func (c *Client) Observe(_ context.Context, input core.DataPolicyObservation) {
 				c.observe(input.Resource, input.Provider, path, mode)
 			}
 			slog.Warn("required transaction data missing", "resource", input.Resource, "merchantId", input.MerchantID, "provider", input.Provider, "path", path, "mode", mode, "policyVersion", current.Version)
+			if mode == "enforce" {
+				missing = append(missing, path)
+			}
 		}
 	}
+	if len(missing) == 0 {
+		return nil
+	}
+	sort.Strings(missing)
+	return &core.MissingRequiredDataError{Fields: missing}
 }
 
 type effectiveRule struct {

@@ -133,5 +133,5 @@ type DataPolicyObservation struct {
 }
 
 type DataPolicyObserver interface {
-	Observe(context.Context, DataPolicyObservation)
+	Evaluate(context.Context, DataPolicyObservation) error
 }

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -189,6 +190,31 @@ func TestMapErrorIncludesCanonicalValidationField(t *testing.T) {
 		t.Fatal(err)
 	}
 	if body["code"] != "invalid_request" || body["field"] != "destination.rail.bankCode" || body["message"] != "destination.rail.bankCode is required" || body["requestId"] != "request-validation" {
+		t.Fatalf("body=%#v", body)
+	}
+}
+
+func TestMapErrorIncludesMissingRequiredDataFields(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	recorder.Header().Set("X-Request-Id", "request-policy")
+
+	mapError(recorder, &core.MissingRequiredDataError{Fields: []string{"customer.email", "customer.firstName"}})
+
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	var body struct {
+		Code      string `json:"code"`
+		Message   string `json:"message"`
+		RequestID string `json:"requestId"`
+		Details   struct {
+			Fields []string `json:"fields"`
+		} `json:"details"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Code != "missing_required_data" || body.Message != "Required transaction data is missing." || body.RequestID != "request-policy" || !slices.Equal(body.Details.Fields, []string{"customer.email", "customer.firstName"}) {
 		t.Fatalf("body=%#v", body)
 	}
 }

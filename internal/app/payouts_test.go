@@ -7,18 +7,28 @@ import (
 	"testing"
 
 	contract "github.com/Germatic/dinapay-contracts/go/connectorcontract/failures"
+	"github.com/Germatic/dinapay-v2/internal/adapters/static"
 	"github.com/Germatic/dinapay-v2/internal/core"
 )
 
-type payoutStoreStub struct{ transitions []refundTransition }
+type payoutStoreStub struct {
+	transitions []refundTransition
+	completes   int
+	releases    int
+}
 
 func (*payoutStoreStub) BeginPayout(context.Context, core.Principal, string, string, string) (core.Payout, bool, error) {
 	return core.Payout{}, false, nil
 }
-func (*payoutStoreStub) CompletePayout(context.Context, core.Principal, string, string, core.CreatePayout, core.RouteDecision) (core.Payout, error) {
+
+func (s *payoutStoreStub) CompletePayout(context.Context, core.Principal, string, string, core.CreatePayout, core.RouteDecision) (core.Payout, error) {
+	s.completes++
 	return core.Payout{}, nil
 }
-func (*payoutStoreStub) ReleasePayout(context.Context, string, string) error { return nil }
+func (s *payoutStoreStub) ReleasePayout(context.Context, string, string) error {
+	s.releases++
+	return nil
+}
 func (*payoutStoreStub) GetPayout(context.Context, core.Principal, string) (core.Payout, error) {
 	return core.Payout{}, core.ErrNotFound
 }
@@ -83,6 +93,20 @@ func (s *payoutLedgerStub) CreditFailedPayout(_ context.Context, _, _, amount, _
 }
 func testPayout(status string) core.Payout {
 	return core.Payout{PayoutID: "payout-1", AccountID: "account-1", MerchantID: "merchant-1", Source: core.Money{Amount: "10.00", Currency: "USDT"}, Destination: core.PayoutDestination{Country: "VE", Currency: "VES"}, OperationalStatus: status}
+}
+
+func TestCreatePayoutDoesNotPersistWhenDataPolicyRejects(t *testing.T) {
+	store := &payoutStoreStub{}
+	svc := NewPayouts(store, routerStub{}, &payoutConnectorStub{}, &payoutLedgerStub{}, static.NewAuth("test-key=account1:merchant1")).WithDataPolicyObserver(dataPolicyStub{err: &core.MissingRequiredDataError{Fields: []string{"remitter.email"}}})
+	in := core.CreatePayout{
+		ExternalID: "policy-reject", Source: core.Money{Amount: "1.00", Currency: "USD"},
+		Destination: core.PayoutDestination{Country: "VE", Currency: "VES", Beneficiary: map[string]any{"firstName": "Maria", "lastName": "Gonzalez", "mobile": "04225786563", "documentNumber": "V40001469"}, Rail: map[string]any{"type": "ve_mobile_payment", "bankCode": "0102"}},
+	}
+	_, _, err := svc.Create(context.Background(), core.Principal{AccountID: "account1", MerchantID: "merchant1"}, "policy-reject-key", in)
+	var missing *core.MissingRequiredDataError
+	if !errors.As(err, &missing) || store.completes != 0 || store.releases != 1 {
+		t.Fatalf("error=%#v completes=%d releases=%d", err, store.completes, store.releases)
+	}
 }
 
 func TestPayoutDebitsBeforeProvider(t *testing.T) {

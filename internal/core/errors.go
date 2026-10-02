@@ -19,7 +19,17 @@ var (
 	ErrDestinationInUse    = errors.New("reusable destination already has an open payment")
 	ErrExternalIDConflict  = errors.New("externalId already exists for merchant")
 	ErrRouteUnsupported    = errors.New("requested payment route is not supported")
+	ErrMissingRequiredData = errors.New("required transaction data is missing")
 )
+
+// MissingRequiredDataError reports the public contract paths required by the
+// active transaction-data policy. It intentionally carries no provider data.
+type MissingRequiredDataError struct {
+	Fields []string
+}
+
+func (e *MissingRequiredDataError) Error() string { return ErrMissingRequiredData.Error() }
+func (e *MissingRequiredDataError) Unwrap() error { return ErrMissingRequiredData }
 
 // ProviderRejectedError carries a connector-normalized failure. ProviderFailure
 // is internal-only and must not be returned in merchant-facing responses.

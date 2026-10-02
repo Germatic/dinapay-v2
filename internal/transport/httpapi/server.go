@@ -621,8 +621,14 @@ func (s *Server) principal(w http.ResponseWriter, r *http.Request, requiredScope
 
 func mapError(w http.ResponseWriter, err error) {
 	var validation *core.ValidationError
+	var missingRequiredData *core.MissingRequiredDataError
 	var unsupportedCurrency *core.UnsupportedCurrencyError
 	switch {
+	case errors.As(err, &missingRequiredData):
+		writeJSON(w, http.StatusBadRequest, map[string]any{
+			"code": "missing_required_data", "message": "Required transaction data is missing.", "requestId": w.Header().Get("X-Request-Id"),
+			"details": map[string]any{"fields": missingRequiredData.Fields},
+		})
 	case errors.As(err, &validation):
 		writeValidationError(w, validation)
 	case errors.As(err, &unsupportedCurrency):
