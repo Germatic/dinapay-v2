@@ -219,6 +219,31 @@ func TestMapErrorIncludesMissingRequiredDataFields(t *testing.T) {
 	}
 }
 
+func TestMapErrorIncludesForbiddenDataFields(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	recorder.Header().Set("X-Request-Id", "request-forbidden")
+
+	mapError(recorder, &core.ForbiddenDataError{Fields: []string{"customer.documentNumber"}})
+
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	var body struct {
+		Code      string `json:"code"`
+		Message   string `json:"message"`
+		RequestID string `json:"requestId"`
+		Details   struct {
+			Fields []string `json:"fields"`
+		} `json:"details"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Code != "forbidden_data" || body.Message != "Transaction data contains fields that are not allowed." || body.RequestID != "request-forbidden" || !slices.Equal(body.Details.Fields, []string{"customer.documentNumber"}) {
+		t.Fatalf("body=%#v", body)
+	}
+}
+
 type dashboardReaderStub struct {
 	accountID      string
 	merchantID     string

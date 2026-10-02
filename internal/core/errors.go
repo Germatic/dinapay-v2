@@ -20,6 +20,7 @@ var (
 	ErrExternalIDConflict  = errors.New("externalId already exists for merchant")
 	ErrRouteUnsupported    = errors.New("requested payment route is not supported")
 	ErrMissingRequiredData = errors.New("required transaction data is missing")
+	ErrForbiddenData       = errors.New("transaction data contains forbidden fields")
 )
 
 // MissingRequiredDataError reports the public contract paths required by the
@@ -30,6 +31,15 @@ type MissingRequiredDataError struct {
 
 func (e *MissingRequiredDataError) Error() string { return ErrMissingRequiredData.Error() }
 func (e *MissingRequiredDataError) Unwrap() error { return ErrMissingRequiredData }
+
+// ForbiddenDataError reports public contract paths that an active policy does
+// not permit the caller to submit.
+type ForbiddenDataError struct {
+	Fields []string
+}
+
+func (e *ForbiddenDataError) Error() string { return ErrForbiddenData.Error() }
+func (e *ForbiddenDataError) Unwrap() error { return ErrForbiddenData }
 
 // ProviderRejectedError carries a connector-normalized failure. ProviderFailure
 // is internal-only and must not be returned in merchant-facing responses.

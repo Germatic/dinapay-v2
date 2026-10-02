@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -51,6 +52,16 @@ type dataPolicyStub struct{ err error }
 
 func (s dataPolicyStub) Evaluate(context.Context, core.DataPolicyObservation) error { return s.err }
 
+type requiredFirstNamePolicyStub struct{}
+
+func (requiredFirstNamePolicyStub) Evaluate(_ context.Context, input core.DataPolicyObservation) error {
+	customer, _ := input.Data["customer"].(map[string]any)
+	if firstName, _ := customer["firstName"].(string); strings.TrimSpace(firstName) == "" {
+		return &core.MissingRequiredDataError{Fields: []string{"customer.firstName"}}
+	}
+	return nil
+}
+
 type countingConnectorStub struct{ creates int }
 
 func (s *countingConnectorStub) CreatePayment(ctx context.Context, route core.RouteDecision, payment core.Payment, successURL, cancelURL string) (core.ProviderPayment, error) {
@@ -83,6 +94,22 @@ func TestCreateDoesNotInvokeConnectorWhenDataPolicyRejects(t *testing.T) {
 	var missing *core.MissingRequiredDataError
 	if !errors.As(err, &missing) || connector.creates != 0 {
 		t.Fatalf("error=%#v connector creates=%d", err, connector.creates)
+	}
+}
+
+func TestCreateCanReuseIdempotencyKeyAfterDataPolicyRejection(t *testing.T) {
+	connector := &countingConnectorStub{}
+	svc := NewPayments(routerStub{}, connector, memory.NewStore(), static.NewAuth("test-key=account1:merchant1"), "").WithDataPolicyObserver(requiredFirstNamePolicyStub{})
+	in := core.CreatePayment{ExternalID: "policy-retry", Amount: "1.00", Currency: "ARS", PaymentMethod: "qr", Customer: core.Customer{"country": "AR"}}
+	if _, _, err := svc.Create(context.Background(), core.Principal{AccountID: "account1", MerchantID: "merchant1"}, in, "policy-retry-key"); !errors.Is(err, core.ErrMissingRequiredData) {
+		t.Fatalf("first create error=%#v", err)
+	}
+	in.Customer["firstName"] = "Juan"
+	if _, replayed, err := svc.Create(context.Background(), core.Principal{AccountID: "account1", MerchantID: "merchant1"}, in, "policy-retry-key"); err != nil || replayed {
+		t.Fatalf("corrected create replayed=%v error=%v", replayed, err)
+	}
+	if connector.creates != 1 {
+		t.Fatalf("connector creates=%d", connector.creates)
 	}
 }
 

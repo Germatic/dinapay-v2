@@ -44,6 +44,20 @@ func TestProviderFailureMetricsUseBoundedBusinessLabels(t *testing.T) {
 	}
 }
 
+func TestDataPolicyViolationMetricsDistinguishMissingAndForbidden(t *testing.T) {
+	ObserveDataPolicyViolation("payment", "pvs", "customer.firstName", "enforce", "missing")
+	ObserveDataPolicyViolation("payment", "pvs", "customer.documentNumber", "observe", "forbidden")
+	recorder := httptest.NewRecorder()
+	Handler().ServeHTTP(recorder, httptest.NewRequest("GET", "/metrics", nil))
+	body := recorder.Body.String()
+	if !strings.Contains(body, `dinapay_data_policy_violations_total{service="dinapay-v2",resource="payment",provider="pvs",path="customer.firstName",mode="enforce",violation="missing"} 1`) {
+		t.Fatalf("missing violation metric: %s", body)
+	}
+	if !strings.Contains(body, `dinapay_data_policy_violations_total{service="dinapay-v2",resource="payment",provider="pvs",path="customer.documentNumber",mode="observe",violation="forbidden"} 1`) {
+		t.Fatalf("forbidden violation metric: %s", body)
+	}
+}
+
 func BenchmarkObserveProviderFailure(b *testing.B) {
 	for b.Loop() {
 		ObserveProviderFailure("payout", "insular", "destination_rejected")

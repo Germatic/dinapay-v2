@@ -40,10 +40,10 @@ type Client struct {
 	url, token, environment string
 	http                    *http.Client
 	current                 atomic.Pointer[snapshot]
-	observe                 func(resource, provider, path, mode string)
+	observe                 func(resource, provider, path, mode, violation string)
 }
 
-func New(baseURL, token, environment string, observe func(string, string, string, string)) *Client {
+func New(baseURL, token, environment string, observe func(string, string, string, string, string)) *Client {
 	return &Client{url: strings.TrimRight(baseURL, "/") + "/internal/v1/data-policy-snapshot?environment=" + environment, token: token, environment: environment, http: &http.Client{Timeout: 5 * time.Second}, observe: observe}
 }
 
@@ -102,26 +102,41 @@ func (c *Client) Evaluate(_ context.Context, input core.DataPolicyObservation) e
 	}
 	rules := resolve(*current, input)
 	missing := make([]string, 0)
+	forbidden := make([]string, 0)
 	for path, item := range rules {
-		if required(item, input.Rail) && !present(input.Data, path) {
-			mode := item.mode
-			if mode == "" {
-				mode = "observe"
-			}
+		mode := item.mode
+		if mode == "" {
+			mode = "observe"
+		}
+		fieldPresent := present(input.Data, path)
+		if required(item, input.Rail) && !fieldPresent {
 			if c.observe != nil {
-				c.observe(input.Resource, input.Provider, path, mode)
+				c.observe(input.Resource, input.Provider, path, mode, "missing")
 			}
 			slog.Warn("required transaction data missing", "resource", input.Resource, "merchantId", input.MerchantID, "provider", input.Provider, "path", path, "mode", mode, "policyVersion", current.Version)
 			if mode == "enforce" {
 				missing = append(missing, path)
 			}
 		}
+		if item.Presence == "forbidden" && fieldPresent {
+			if c.observe != nil {
+				c.observe(input.Resource, input.Provider, path, mode, "forbidden")
+			}
+			slog.Warn("forbidden transaction data present", "resource", input.Resource, "merchantId", input.MerchantID, "provider", input.Provider, "path", path, "mode", mode, "policyVersion", current.Version)
+			if mode == "enforce" {
+				forbidden = append(forbidden, path)
+			}
+		}
 	}
-	if len(missing) == 0 {
-		return nil
+	if len(missing) > 0 {
+		sort.Strings(missing)
+		return &core.MissingRequiredDataError{Fields: missing}
 	}
-	sort.Strings(missing)
-	return &core.MissingRequiredDataError{Fields: missing}
+	if len(forbidden) > 0 {
+		sort.Strings(forbidden)
+		return &core.ForbiddenDataError{Fields: forbidden}
+	}
+	return nil
 }
 
 type effectiveRule struct {

@@ -11,7 +11,7 @@ import (
 
 func TestEvaluateCombinesScopedAndConnectorRequirementsInObserveMode(t *testing.T) {
 	var missing []string
-	client := New("http://example.invalid", "token", "sandbox", func(_, _, path, mode string) { missing = append(missing, path+":"+mode) })
+	client := New("http://example.invalid", "token", "sandbox", func(_, _, path, mode, violation string) { missing = append(missing, path+":"+mode+":"+violation) })
 	client.current.Store(&snapshot{Version: "v1", Environment: "sandbox", Policies: []policy{
 		{ID: "global", Status: "active", EnforcementMode: "observe", Context: policyContext{ScopeType: "global", Environment: "sandbox", Resource: "payout", Country: "VE"}, Rules: []rule{{Path: "remitter.firstName", Presence: "required"}}},
 		{ID: "merchant", Status: "active", EnforcementMode: "observe", Context: policyContext{ScopeType: "merchant", ScopeID: "mrc_1", Environment: "sandbox", Resource: "payout", Country: "VE"}, Rules: []rule{{Path: "remitter.firstName", Presence: "optional"}}},
@@ -19,9 +19,33 @@ func TestEvaluateCombinesScopedAndConnectorRequirementsInObserveMode(t *testing.
 	if err := client.Evaluate(context.Background(), core.DataPolicyObservation{Resource: "payout", AccountID: "acct_1", MerchantID: "mrc_1", Provider: "insular", Country: "VE", Currency: "USD", Rail: "ve_bank_account", Data: map[string]any{"remitter": map[string]any{}, "destination": map[string]any{"rail": map[string]any{}}}}); err != nil {
 		t.Fatalf("observe policy rejected request: %v", err)
 	}
-	want := []string{"remitter.firstName:observe", "destination.rail.accountNumber:observe"}
+	want := []string{"remitter.firstName:observe:missing", "destination.rail.accountNumber:observe:missing"}
 	if !sameStrings(missing, want) {
 		t.Fatalf("missing=%v want=%v", missing, want)
+	}
+}
+
+func TestEvaluateRejectsForbiddenFieldsOnlyInEnforceMode(t *testing.T) {
+	var violations []string
+	client := New("http://example.invalid", "token", "sandbox", func(_, _, path, mode, violation string) {
+		violations = append(violations, path+":"+mode+":"+violation)
+	})
+	client.current.Store(&snapshot{Version: "v3", Environment: "sandbox", Policies: []policy{
+		{ID: "merchant", Status: "active", EnforcementMode: "enforce", Context: policyContext{ScopeType: "merchant", ScopeID: "mrc_1", Environment: "sandbox", Resource: "payment", Country: "AR"}, Rules: []rule{
+			{Path: "customer.documentNumber", Presence: "forbidden"},
+		}},
+	}})
+	err := client.Evaluate(context.Background(), core.DataPolicyObservation{Resource: "payment", MerchantID: "mrc_1", Country: "AR", Data: map[string]any{"customer": map[string]any{"documentNumber": "123"}}})
+	var forbidden *core.ForbiddenDataError
+	if !errors.As(err, &forbidden) || !slices.Equal(forbidden.Fields, []string{"customer.documentNumber"}) {
+		t.Fatalf("error=%#v", err)
+	}
+	if !slices.Equal(violations, []string{"customer.documentNumber:enforce:forbidden"}) {
+		t.Fatalf("violations=%v", violations)
+	}
+	client.current.Load().Policies[0].EnforcementMode = "observe"
+	if err := client.Evaluate(context.Background(), core.DataPolicyObservation{Resource: "payment", MerchantID: "mrc_1", Country: "AR", Data: map[string]any{"customer": map[string]any{"documentNumber": "123"}}}); err != nil {
+		t.Fatalf("observe mode rejected forbidden field: %v", err)
 	}
 }
 

@@ -19,6 +19,7 @@ type httpKey struct{ method, route, status string }
 type durationKey struct{ method, route string }
 type providerFailureKey struct{ operation, provider, code string }
 type dataPolicyKey struct{ resource, provider, path, mode string }
+type dataPolicyViolationKey struct{ resource, provider, path, mode, violation string }
 type histogram struct {
 	count   uint64
 	sum     float64
@@ -44,6 +45,48 @@ var providerFailures struct {
 var dataPolicyMissing struct {
 	sync.Mutex
 	snapshot atomic.Pointer[map[dataPolicyKey]*atomic.Uint64]
+}
+
+var dataPolicyViolations struct {
+	sync.Mutex
+	snapshot atomic.Pointer[map[dataPolicyViolationKey]*atomic.Uint64]
+}
+
+// ObserveDataPolicyViolation records the generic policy signal while retaining
+// the original missing-field metric for existing dashboards and alerts.
+func ObserveDataPolicyViolation(resource, provider, path, mode, violation string) {
+	if resource == "" || path == "" || (violation != "missing" && violation != "forbidden") {
+		return
+	}
+	if violation == "missing" {
+		ObserveMissingDataField(resource, provider, path, mode)
+	}
+	key := dataPolicyViolationKey{resource: resource, provider: provider, path: path, mode: mode, violation: violation}
+	if current := dataPolicyViolations.snapshot.Load(); current != nil {
+		if counter := (*current)[key]; counter != nil {
+			counter.Add(1)
+			return
+		}
+	}
+	dataPolicyViolations.Lock()
+	defer dataPolicyViolations.Unlock()
+	current := dataPolicyViolations.snapshot.Load()
+	if current != nil {
+		if counter := (*current)[key]; counter != nil {
+			counter.Add(1)
+			return
+		}
+	}
+	next := map[dataPolicyViolationKey]*atomic.Uint64{}
+	if current != nil {
+		for existing, counter := range *current {
+			next[existing] = counter
+		}
+	}
+	counter := &atomic.Uint64{}
+	counter.Add(1)
+	next[key] = counter
+	dataPolicyViolations.snapshot.Store(&next)
 }
 
 func ObserveMissingDataField(resource, provider, path, mode string) {
@@ -180,6 +223,11 @@ func Handler() http.Handler {
 		if missing := dataPolicyMissing.snapshot.Load(); missing != nil {
 			for key, counter := range *missing {
 				lines = append(lines, fmt.Sprintf("dinapay_data_policy_missing_fields_total{service=%q,resource=%q,provider=%q,path=%q,mode=%q} %d", service, key.resource, key.provider, key.path, key.mode, counter.Load()))
+			}
+		}
+		if violations := dataPolicyViolations.snapshot.Load(); violations != nil {
+			for key, counter := range *violations {
+				lines = append(lines, fmt.Sprintf("dinapay_data_policy_violations_total{service=%q,resource=%q,provider=%q,path=%q,mode=%q,violation=%q} %d", service, key.resource, key.provider, key.path, key.mode, key.violation, counter.Load()))
 			}
 		}
 		sort.Strings(lines)

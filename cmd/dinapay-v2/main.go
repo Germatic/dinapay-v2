@@ -64,7 +64,7 @@ func main() {
 	)
 	var dataPolicyObserver core.DataPolicyObserver
 	if baseURL, token := os.Getenv("CONTROL_PLANE_URL"), os.Getenv("CONTROL_PLANE_RUNTIME_TOKEN"); baseURL != "" && token != "" {
-		client := datapolicy.New(baseURL, token, env("DINARIA_ENVIRONMENT", "sandbox"), observability.ObserveMissingDataField)
+		client := datapolicy.New(baseURL, token, env("DINARIA_ENVIRONMENT", "sandbox"), observability.ObserveDataPolicyViolation)
 		dataPolicyObserver = client
 		payments.WithDataPolicyObserver(client)
 		go client.Run(context.Background(), envDuration("DATA_POLICY_REFRESH_INTERVAL", 30*time.Second))
