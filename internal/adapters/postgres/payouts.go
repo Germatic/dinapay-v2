@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	contract "github.com/Germatic/dinapay-contracts/go/connectorcontract/failures"
@@ -193,7 +194,14 @@ func payoutFailure(raw []byte, lastError string) map[string]any {
 	if len(raw) == 0 && lastError == "" {
 		return nil
 	}
-	fallback := contract.NewPayout(contract.PayoutUnknownError)
+	fallbackCode := contract.PayoutUnknownError
+	// Releases predating the canonical failure catalog persisted only this
+	// internal marker. Map it on read so historical payouts expose the same
+	// stable public code as newly processed payouts, without a data migration.
+	if strings.EqualFold(strings.TrimSpace(lastError), "insufficient balance") {
+		fallbackCode = contract.PayoutInsufficientFunds
+	}
+	fallback := contract.NewPayout(fallbackCode)
 	encoded, _ := json.Marshal(fallback)
 	var detail map[string]any
 	_ = json.Unmarshal(encoded, &detail)

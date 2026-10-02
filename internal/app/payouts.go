@@ -150,8 +150,10 @@ func (s *Payouts) process(ctx context.Context, p core.Payout) {
 		}
 		if err := s.ledger.DebitPayout(ctx, p.AccountID, p.PayoutID, payoutDebitAmount(p), p.Source.Currency); err != nil {
 			if errors.Is(err, core.ErrInsufficientBalance) {
+				failure := contract.NewPayout(contract.PayoutInsufficientFunds)
 				f := transition("pending_debit")
 				f["lastError"] = "insufficient balance"
+				f["failure"] = &failure
 				_, _ = s.store.TransitionPayout(ctx, p.PayoutID, "failed", f)
 			}
 			return

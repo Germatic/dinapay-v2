@@ -267,6 +267,10 @@ func TestPayoutInsufficientBalanceNeverCallsProvider(t *testing.T) {
 	if connector.creates != 0 || len(store.transitions) != 1 || store.transitions[0].next != "failed" {
 		t.Fatalf("creates=%d transitions=%#v", connector.creates, store.transitions)
 	}
+	failure, ok := store.transitions[0].fields["failure"].(*contract.Failure)
+	if !ok || failure.Code != string(contract.PayoutInsufficientFunds) {
+		t.Fatalf("failure=%#v", store.transitions[0].fields["failure"])
+	}
 }
 func TestPayoutProviderRejectionCompensates(t *testing.T) {
 	store := &payoutStoreStub{}

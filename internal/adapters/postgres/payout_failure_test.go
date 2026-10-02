@@ -22,6 +22,13 @@ func TestPayoutFailureKeepsLegacyText(t *testing.T) {
 	}
 }
 
+func TestPayoutFailureMapsLegacyInsufficientBalance(t *testing.T) {
+	failure := payoutFailure(nil, "insufficient balance")
+	if failure["code"] != string(contract.PayoutInsufficientFunds) || failure["category"] != "funding" {
+		t.Fatalf("failure=%#v", failure)
+	}
+}
+
 func TestNormalizePayoutEventSeparatesPublicAndProviderFailure(t *testing.T) {
 	public := contract.NewPayout(contract.PayoutDestinationRejected)
 	native := contract.ProviderFailure{Code: "609", Message: "native message"}
