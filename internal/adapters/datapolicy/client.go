@@ -182,7 +182,10 @@ func resolve(value snapshot, input core.DataPolicyObservation) map[string]effect
 			continue
 		}
 		for _, r := range group.Rules {
-			result[r.Path] = effectiveRule{rule: r, mode: "observe", rank: 3}
+			// Connector requirements are immutable technical preconditions for a
+			// selected route. Unlike administrative policies, they are always
+			// enforced and cannot be relaxed by an account or merchant policy.
+			result[r.Path] = effectiveRule{rule: r, mode: "enforce", rank: 3}
 		}
 	}
 	return result

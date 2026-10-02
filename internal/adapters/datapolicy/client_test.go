@@ -9,17 +9,19 @@ import (
 	"github.com/Germatic/dinapay-v2/internal/core"
 )
 
-func TestEvaluateCombinesScopedAndConnectorRequirementsInObserveMode(t *testing.T) {
+func TestEvaluateObservesAdministrativePolicyAndEnforcesConnectorRequirement(t *testing.T) {
 	var missing []string
 	client := New("http://example.invalid", "token", "sandbox", func(_, _, path, mode, violation string) { missing = append(missing, path+":"+mode+":"+violation) })
 	client.current.Store(&snapshot{Version: "v1", Environment: "sandbox", Policies: []policy{
 		{ID: "global", Status: "active", EnforcementMode: "observe", Context: policyContext{ScopeType: "global", Environment: "sandbox", Resource: "payout", Country: "VE"}, Rules: []rule{{Path: "remitter.firstName", Presence: "required"}}},
 		{ID: "merchant", Status: "active", EnforcementMode: "observe", Context: policyContext{ScopeType: "merchant", ScopeID: "mrc_1", Environment: "sandbox", Resource: "payout", Country: "VE"}, Rules: []rule{{Path: "remitter.firstName", Presence: "optional"}}},
 	}, ConnectorRequirements: []connectorRequirements{{Provider: "insular", Operation: "payout", Countries: []string{"VE"}, SourceCurrencies: []string{"USD"}, Rails: []string{"ve_bank_account"}, Rules: []rule{{Path: "destination.rail.accountNumber", Presence: "conditional", When: map[string]any{"rail": "ve_bank_account"}}}}}})
-	if err := client.Evaluate(context.Background(), core.DataPolicyObservation{Resource: "payout", AccountID: "acct_1", MerchantID: "mrc_1", Provider: "insular", Country: "VE", Currency: "USD", Rail: "ve_bank_account", Data: map[string]any{"remitter": map[string]any{}, "destination": map[string]any{"rail": map[string]any{}}}}); err != nil {
-		t.Fatalf("observe policy rejected request: %v", err)
+	err := client.Evaluate(context.Background(), core.DataPolicyObservation{Resource: "payout", AccountID: "acct_1", MerchantID: "mrc_1", Provider: "insular", Country: "VE", Currency: "USD", Rail: "ve_bank_account", Data: map[string]any{"remitter": map[string]any{}, "destination": map[string]any{"rail": map[string]any{}}}})
+	var required *core.MissingRequiredDataError
+	if !errors.As(err, &required) || !slices.Equal(required.Fields, []string{"destination.rail.accountNumber"}) {
+		t.Fatalf("error=%#v", err)
 	}
-	want := []string{"remitter.firstName:observe:missing", "destination.rail.accountNumber:observe:missing"}
+	want := []string{"remitter.firstName:observe:missing", "destination.rail.accountNumber:enforce:missing"}
 	if !sameStrings(missing, want) {
 		t.Fatalf("missing=%v want=%v", missing, want)
 	}
