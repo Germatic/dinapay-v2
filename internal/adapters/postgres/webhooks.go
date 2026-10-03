@@ -7,6 +7,7 @@ import (
 
 	"github.com/Germatic/dinapay-v2/internal/core"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 func webhookScope(p core.Principal) (string, string) {
@@ -63,7 +64,7 @@ func (s *Store) CreateWebhook(ctx context.Context, p core.Principal, url, secret
 	}
 	w, err := scanWebhook(row)
 	if errors.Is(err, core.ErrNotFound) {
-		return w, core.ErrConflict
+		return w, core.ErrWebhookAlreadyExists
 	}
 	if err == nil {
 		w.Secret = secret
@@ -104,7 +105,12 @@ func (s *Store) UpdateWebhook(ctx context.Context, p core.Principal, id string, 
 	}
 	args := []any{id, url, events != nil, eventValue}
 	args = append(args, ownerArgs...)
-	return scanWebhook(s.db.QueryRow(ctx, `UPDATE webhooks SET webhook_url=COALESCE($2,webhook_url),event_types=CASE WHEN $3 THEN $4 ELSE event_types END,updated_at=now() WHERE id=$1 AND api_version='2' AND `+owner+webhookReturning, args...))
+	w, err := scanWebhook(s.db.QueryRow(ctx, `UPDATE webhooks SET webhook_url=COALESCE($2,webhook_url),event_types=CASE WHEN $3 THEN $4 ELSE event_types END,updated_at=now() WHERE id=$1 AND api_version='2' AND `+owner+webhookReturning, args...))
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+		return core.WebhookSubscription{}, core.ErrWebhookAlreadyExists
+	}
+	return w, err
 }
 
 func (s *Store) DeleteWebhook(ctx context.Context, p core.Principal, id string) error {

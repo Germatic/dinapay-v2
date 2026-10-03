@@ -148,6 +148,12 @@ WHERE p.confirmation_date IS NOT NULL AND (p.received_amount IS NULL OR p.pricin
 ALTER TABLE webhooks ADD COLUMN IF NOT EXISTS api_version TEXT NOT NULL DEFAULT '1';
 ALTER TABLE webhooks ADD COLUMN IF NOT EXISTS event_types TEXT[];
 CREATE INDEX IF NOT EXISTS webhooks_api_version_idx ON webhooks (api_version);
+-- A scope may fan out different event sets to multiple callback URLs. Only an
+-- exact URL duplicate within the same account or merchant is rejected.
+DROP INDEX IF EXISTS webhooks_one_per_account_idx;
+DROP INDEX IF EXISTS webhooks_one_per_merchant_idx;
+CREATE UNIQUE INDEX IF NOT EXISTS webhooks_account_url_idx ON webhooks (account_id,webhook_url) WHERE account_id IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS webhooks_merchant_url_idx ON webhooks (merchant_id,webhook_url) WHERE merchant_id IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS dinapay_v2_refunds (
   refund_id UUID PRIMARY KEY,

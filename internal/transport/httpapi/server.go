@@ -651,6 +651,8 @@ func mapError(w http.ResponseWriter, err error) {
 		writeError(w, 404, "not_found", err.Error())
 	case errors.Is(err, app.ErrConflict):
 		writeError(w, 409, "idempotency_conflict", err.Error())
+	case errors.Is(err, core.ErrWebhookAlreadyExists):
+		writeError(w, 409, "webhook_already_exists", "A webhook with this URL already exists for this scope.")
 	case errors.Is(err, core.ErrExternalIDConflict):
 		writeError(w, 409, "external_id_conflict", "externalId already exists for this merchant")
 	case errors.Is(err, app.ErrDestinationInUse):
