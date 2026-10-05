@@ -17,6 +17,38 @@ import (
 	"github.com/Germatic/dinapay-v2/internal/core"
 )
 
+func TestSandboxPaymentSimulationRoutes(t *testing.T) {
+	t.Setenv("DINARIA_ENVIRONMENT", "sandbox")
+	handler := New(nil, nil, nil, nil, static.NewAuth("key=account-1:merchant-1"), "service-token")
+
+	for _, path := range []string{
+		"/v2/sandbox/payments/tx-1/simulate",
+		"/v2/sandbox/transactions/tx-1/simulate",
+	} {
+		recorder := httptest.NewRecorder()
+		handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, path, strings.NewReader(`{"scenario":"payment.confirmed"}`)))
+		if recorder.Code != http.StatusUnauthorized {
+			t.Fatalf("route %s was not registered: status=%d body=%s", path, recorder.Code, recorder.Body.String())
+		}
+	}
+}
+
+func TestPaymentSimulationRoutesAreUnavailableOutsideSandbox(t *testing.T) {
+	t.Setenv("DINARIA_ENVIRONMENT", "production")
+	handler := New(nil, nil, nil, nil, static.NewAuth("key=account-1:merchant-1"), "service-token")
+
+	for _, path := range []string{
+		"/v2/sandbox/payments/tx-1/simulate",
+		"/v2/sandbox/transactions/tx-1/simulate",
+	} {
+		recorder := httptest.NewRecorder()
+		handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, path, strings.NewReader(`{"scenario":"payment.confirmed"}`)))
+		if recorder.Code != http.StatusNotFound {
+			t.Fatalf("route %s must not exist in production: status=%d body=%s", path, recorder.Code, recorder.Body.String())
+		}
+	}
+}
+
 func TestHostedCheckoutRendersSafeQRAndMinimalStatus(t *testing.T) {
 	const transactionID = "8dd5d1ee-1ba0-4311-bbbd-fd19765b2f93"
 	store := memory.NewStore()

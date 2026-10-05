@@ -39,6 +39,35 @@ their V1 behavior. V2 deliveries target registrations explicitly marked `2`.
 
 Provider credentials and provider payloads never enter this service.
 
+## Sandbox payment simulation
+
+Merchants whose sandbox capability is configured with `executionMode=simulated`
+can drive a payment outcome without depending on a provider sandbox:
+
+```http
+POST /v2/sandbox/payments/{transactionId}/simulate
+Authorization: Bearer <sandbox-api-key>
+Idempotency-Key: <unique-key>
+Content-Type: application/json
+
+{
+  "scenario": "payment.confirmed",
+  "payer": {
+    "name": "Sandbox payer",
+    "documentType": "CUIT",
+    "documentNumber": "20234567897"
+  }
+}
+```
+
+Supported scenarios are `payment.pending`, `payment.confirmed`,
+`payment.rejected`, and `payment.expired`. The endpoint returns `202 Accepted`;
+the resulting state is observed through the normal payment read and webhook
+interfaces. It requires `payments:write`, enforces merchant ownership and an
+idempotency key, and is not registered outside sandbox. The original
+`/v2/sandbox/transactions/{transactionId}/simulate` path remains as a
+compatibility alias.
+
 ## Data-policy observation
 
 When `CONTROL_PLANE_URL` and `CONTROL_PLANE_RUNTIME_TOKEN` are configured,
