@@ -58,6 +58,10 @@ func NewWithDashboardReader(payments *app.Payments, refunds *app.Refunds, payout
 	mux.HandleFunc("GET /v2/payments", s.list)
 	mux.HandleFunc("GET /v2/payments/{transactionId}", s.get)
 	if strings.EqualFold(strings.TrimSpace(buildinfo.Current("dinapay-v2").Environment), "sandbox") {
+		mux.HandleFunc("POST /v2/sandbox/payments/{transactionId}/simulate", s.simulatePayment)
+		// Kept as a compatibility alias for clients that adopted the original
+		// transaction-oriented sandbox route before the Payments API naming was
+		// standardized.
 		mux.HandleFunc("POST /v2/sandbox/transactions/{transactionId}/simulate", s.simulatePayment)
 	}
 	mux.HandleFunc("POST /v2/payments/{transactionId}/refunds", s.createRefund)
