@@ -12,6 +12,10 @@ type Connector interface {
 	GetRefund(context.Context, RouteDecision, Refund) (ProviderRefund, error)
 }
 
+type PaymentSimulator interface {
+	SimulatePayment(context.Context, RouteDecision, Payment, SimulatePayment, string) (SimulationAccepted, error)
+}
+
 type PayoutConnector interface {
 	CreatePayout(context.Context, RouteDecision, Payout, string) (ProviderPayout, error)
 	GetPayout(context.Context, RouteDecision, Payout) (ProviderPayout, error)

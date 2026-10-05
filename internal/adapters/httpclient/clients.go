@@ -91,6 +91,40 @@ func (c *Connectors) CreatePayment(ctx context.Context, route core.RouteDecision
 	return out, err
 }
 
+func (c *Connectors) SimulatePayment(ctx context.Context, route core.RouteDecision, p core.Payment, in core.SimulatePayment, key string) (core.SimulationAccepted, error) {
+	var out core.SimulationAccepted
+	base, ok := c.urls[route.ConnectorID]
+	if !ok {
+		return out, fmt.Errorf("unknown connector %q", route.ConnectorID)
+	}
+	command := map[string]any{
+		"operationId":   "payment:" + p.TransactionID + ":simulate:" + in.Scenario,
+		"transactionId": p.TransactionID, "providerConnectionId": route.ProviderConnectionID,
+		"scenario": in.Scenario,
+	}
+	if in.DelaySeconds > 0 {
+		command["delaySeconds"] = in.DelaySeconds
+	}
+	if len(in.Payer) > 0 {
+		command["payer"] = in.Payer
+	}
+	if len(in.ProviderData) > 0 {
+		command["providerData"] = in.ProviderData
+	}
+	var provider struct {
+		SimulationID  string    `json:"simulationId"`
+		TransactionID string    `json:"transactionId"`
+		Scenario      string    `json:"scenario"`
+		Status        string    `json:"status"`
+		ScheduledAt   time.Time `json:"scheduledAt"`
+	}
+	err := postJSON(ctx, c.client, strings.TrimRight(base, "/")+"/v1/payments/"+p.ProviderPaymentID+"/simulate", c.token, key, command, &provider)
+	if err == nil {
+		out = core.SimulationAccepted{SimulationID: provider.SimulationID, TransactionID: provider.TransactionID, RequestedScenario: provider.Scenario, Status: provider.Status, ScheduledAt: provider.ScheduledAt}
+	}
+	return out, err
+}
+
 func (c *Connectors) CreateRefund(ctx context.Context, route core.RouteDecision, p core.Payment, r core.Refund, key string) (core.ProviderRefund, error) {
 	var out core.ProviderRefund
 	base, ok := c.urls[route.ConnectorID]

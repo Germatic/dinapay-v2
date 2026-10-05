@@ -288,6 +288,21 @@ type RouteDecision struct {
 	ReasonCodes          []string         `json:"reasonCodes"`
 }
 
+type SimulatePayment struct {
+	Scenario     string         `json:"scenario"`
+	DelaySeconds int            `json:"delaySeconds,omitempty"`
+	Payer        map[string]any `json:"payer,omitempty"`
+	ProviderData map[string]any `json:"providerData,omitempty"`
+}
+
+type SimulationAccepted struct {
+	SimulationID      string    `json:"simulationId"`
+	TransactionID     string    `json:"transactionId"`
+	RequestedScenario string    `json:"requestedScenario"`
+	Status            string    `json:"status"`
+	ScheduledAt       time.Time `json:"scheduledAt"`
+}
+
 type ProviderPayment struct {
 	TransactionID        string         `json:"transactionId"`
 	Provider             string         `json:"provider"`

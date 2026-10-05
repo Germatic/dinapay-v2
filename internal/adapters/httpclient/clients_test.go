@@ -34,6 +34,31 @@ func TestCreatePaymentForwardsCollectionKey(t *testing.T) {
 	}
 }
 
+func TestSimulatePaymentForwardsToSelectedConnector(t *testing.T) {
+	var body map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/payments/provider-1/simulate" || r.Header.Get("Idempotency-Key") != "simulation-key" {
+			t.Fatalf("path=%s key=%s", r.URL.Path, r.Header.Get("Idempotency-Key"))
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusAccepted)
+		_, _ = w.Write([]byte(`{"simulationId":"simulation-1","transactionId":"tx-1","scenario":"payment.confirmed","status":"accepted","scheduledAt":"2026-10-05T12:00:00Z"}`))
+	}))
+	defer server.Close()
+
+	client := NewConnectors(map[string]string{"pvs": server.URL}, "token")
+	result, err := client.SimulatePayment(context.Background(), core.RouteDecision{ConnectorID: "pvs", ProviderConnectionID: "pvs-simulated"}, core.Payment{TransactionID: "tx-1", ProviderPaymentID: "provider-1"}, core.SimulatePayment{Scenario: "payment.confirmed", DelaySeconds: 2}, "simulation-key")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.SimulationID != "simulation-1" || body["scenario"] != "payment.confirmed" || body["delaySeconds"] != float64(2) {
+		t.Fatalf("result=%#v body=%#v", result, body)
+	}
+}
+
 func TestPostJSONDecodesStructuredProviderRejection(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusUnprocessableEntity)
