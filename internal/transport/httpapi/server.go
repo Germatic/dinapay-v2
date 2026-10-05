@@ -57,6 +57,9 @@ func NewWithDashboardReader(payments *app.Payments, refunds *app.Refunds, payout
 	mux.HandleFunc("POST /v2/payments", s.create)
 	mux.HandleFunc("GET /v2/payments", s.list)
 	mux.HandleFunc("GET /v2/payments/{transactionId}", s.get)
+	if strings.EqualFold(strings.TrimSpace(buildinfo.Current("dinapay-v2").Environment), "sandbox") {
+		mux.HandleFunc("POST /v2/sandbox/transactions/{transactionId}/simulate", s.simulatePayment)
+	}
 	mux.HandleFunc("POST /v2/payments/{transactionId}/refunds", s.createRefund)
 	mux.HandleFunc("GET /v2/payments/{transactionId}/refunds", s.listRefunds)
 	mux.HandleFunc("GET /v2/refunds/{refundId}", s.getRefund)
@@ -605,6 +608,26 @@ func (s *Server) get(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, result)
 }
 
+func (s *Server) simulatePayment(w http.ResponseWriter, r *http.Request) {
+	p, ok := s.principal(w, r, "payments:write")
+	if !ok {
+		return
+	}
+	var input core.SimulatePayment
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&input); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+	result, err := s.payments.Simulate(r.Context(), p, r.PathValue("transactionId"), r.Header.Get("Idempotency-Key"), input)
+	if err != nil {
+		mapError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusAccepted, result)
+}
+
 func (s *Server) principal(w http.ResponseWriter, r *http.Request, requiredScope string) (core.Principal, bool) {
 	token := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
 	p, err := s.auth.Authenticate(r.Context(), token)
@@ -663,6 +686,8 @@ func mapError(w http.ResponseWriter, err error) {
 		writeError(w, 422, "refund_not_supported", err.Error())
 	case errors.Is(err, core.ErrRouteUnsupported):
 		writeError(w, 422, "payment_method_not_supported", "The requested payment method is not supported for this currency and country.")
+	case errors.Is(err, core.ErrSimulationUnavailable):
+		writeError(w, 422, "simulation_not_available", err.Error())
 	case errors.Is(err, core.ErrProviderRejected):
 		writeError(w, 422, "provider_rejected", "The payment request was rejected.")
 	default:

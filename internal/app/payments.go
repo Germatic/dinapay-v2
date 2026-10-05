@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/url"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -177,6 +178,24 @@ func (s *Payments) Get(ctx context.Context, principal core.Principal, transactio
 		s.normalizeRead(&p)
 	}
 	return p, err
+}
+
+func (s *Payments) Simulate(ctx context.Context, principal core.Principal, transactionID, idempotencyKey string, in core.SimulatePayment) (core.SimulationAccepted, error) {
+	if strings.TrimSpace(idempotencyKey) == "" || transactionID == "" || !slices.Contains([]string{"payment.pending", "payment.confirmed", "payment.rejected", "payment.expired"}, in.Scenario) || in.DelaySeconds < 0 || in.DelaySeconds > 3600 {
+		return core.SimulationAccepted{}, ErrInvalid
+	}
+	payment, err := s.store.Get(ctx, principal.AccountID, principal.MerchantID, transactionID)
+	if err != nil {
+		return core.SimulationAccepted{}, err
+	}
+	if payment.Route.ExecutionMode != "simulated" || payment.ProviderPaymentID == "" {
+		return core.SimulationAccepted{}, core.ErrSimulationUnavailable
+	}
+	simulator, ok := s.connector.(core.PaymentSimulator)
+	if !ok {
+		return core.SimulationAccepted{}, core.ErrSimulationUnavailable
+	}
+	return simulator.SimulatePayment(ctx, payment.Route, payment, in, idempotencyKey)
 }
 
 func (s *Payments) Checkout(ctx context.Context, transactionID string) (core.CheckoutPayment, error) {
