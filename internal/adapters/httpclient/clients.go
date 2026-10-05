@@ -51,9 +51,13 @@ func (c *Connectors) CreatePayment(ctx context.Context, route core.RouteDecision
 	if !ok {
 		return out, fmt.Errorf("unknown connector %q", route.ConnectorID)
 	}
+	executionMode := route.ExecutionMode
+	if executionMode == "" {
+		executionMode = "provider"
+	}
 	command := map[string]any{
 		"operationId": "payment:" + p.TransactionID + ":create", "transactionId": p.TransactionID,
-		"provider": route.Provider, "providerConnectionId": route.ProviderConnectionID,
+		"provider": route.Provider, "providerConnectionId": route.ProviderConnectionID, "executionMode": executionMode,
 		"amount": p.Amount, "currency": p.Currency, "paymentMethod": p.PaymentMethod,
 		"rail": route.Rail, "destinationMode": route.DestinationMode,
 		"customer": p.Customer,
@@ -93,7 +97,11 @@ func (c *Connectors) CreateRefund(ctx context.Context, route core.RouteDecision,
 	if !ok {
 		return out, fmt.Errorf("unknown connector %q", route.ConnectorID)
 	}
-	command := map[string]any{"operationId": "refund:" + r.RefundID + ":create", "refundId": r.RefundID, "transactionId": p.TransactionID, "providerConnectionId": route.ProviderConnectionID, "amount": r.Amount, "currency": r.Currency}
+	executionMode := route.ExecutionMode
+	if executionMode == "" {
+		executionMode = "provider"
+	}
+	command := map[string]any{"operationId": "refund:" + r.RefundID + ":create", "refundId": r.RefundID, "transactionId": p.TransactionID, "providerConnectionId": route.ProviderConnectionID, "executionMode": executionMode, "amount": r.Amount, "currency": r.Currency}
 	if r.Reason != "" {
 		command["reason"] = r.Reason
 	}
@@ -135,7 +143,11 @@ func (c *Connectors) CreatePayout(ctx context.Context, route core.RouteDecision,
 	if !ok {
 		return out, fmt.Errorf("unknown connector %q", route.ConnectorID)
 	}
-	command := map[string]any{"operationId": "payout:" + p.PayoutID + ":create", "payoutId": p.PayoutID, "accountId": p.AccountID, "merchantId": p.MerchantID, "provider": route.Provider, "providerConnectionId": route.ProviderConnectionID, "source": p.Source, "destination": p.Destination}
+	executionMode := route.ExecutionMode
+	if executionMode == "" {
+		executionMode = "provider"
+	}
+	command := map[string]any{"operationId": "payout:" + p.PayoutID + ":create", "payoutId": p.PayoutID, "accountId": p.AccountID, "merchantId": p.MerchantID, "provider": route.Provider, "providerConnectionId": route.ProviderConnectionID, "executionMode": executionMode, "source": p.Source, "destination": p.Destination}
 	if route.Binding != nil {
 		command["binding"] = route.Binding
 	}

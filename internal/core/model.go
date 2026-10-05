@@ -279,6 +279,7 @@ type RouteDecision struct {
 	ConnectorID          string           `json:"connectorId"`
 	Provider             string           `json:"provider"`
 	ProviderConnectionID string           `json:"providerConnectionId"`
+	ExecutionMode        string           `json:"executionMode"`
 	Rail                 string           `json:"rail"`
 	DestinationMode      string           `json:"destinationMode,omitempty"`
 	Binding              *ProviderBinding `json:"binding,omitempty"`

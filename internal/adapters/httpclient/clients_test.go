@@ -24,12 +24,12 @@ func TestCreatePaymentForwardsCollectionKey(t *testing.T) {
 	defer server.Close()
 
 	client := NewConnectors(map[string]string{"td": server.URL}, "token")
-	route := core.RouteDecision{ConnectorID: "td", Provider: "transferdirecto", ProviderConnectionID: "td-sandbox", Rail: "spei", DestinationMode: "reusable"}
+	route := core.RouteDecision{ConnectorID: "td", Provider: "transferdirecto", ProviderConnectionID: "td-sandbox", ExecutionMode: "simulated", Rail: "spei", DestinationMode: "reusable"}
 	payment := core.Payment{TransactionID: "tx-1", Amount: "10.00", Currency: "MXN", PaymentMethod: "bank_transfer", CollectionKey: "customer-123", Customer: core.Customer{"country": "MX"}}
 	if _, err := client.CreatePayment(context.Background(), route, payment, "", ""); err != nil {
 		t.Fatal(err)
 	}
-	if body["collectionKey"] != "customer-123" || body["destinationMode"] != "reusable" {
+	if body["collectionKey"] != "customer-123" || body["destinationMode"] != "reusable" || body["executionMode"] != "simulated" {
 		t.Fatalf("body=%#v", body)
 	}
 }
