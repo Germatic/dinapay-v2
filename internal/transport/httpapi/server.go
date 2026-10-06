@@ -63,6 +63,7 @@ func NewWithDashboardReader(payments *app.Payments, refunds *app.Refunds, payout
 		// transaction-oriented sandbox route before the Payments API naming was
 		// standardized.
 		mux.HandleFunc("POST /v2/sandbox/transactions/{transactionId}/simulate", s.simulatePayment)
+		mux.HandleFunc("POST /internal/v1/dashboard/payments/{transactionId}/simulate", s.dashboardSimulatePayment)
 	}
 	mux.HandleFunc("POST /v2/payments/{transactionId}/refunds", s.createRefund)
 	mux.HandleFunc("GET /v2/payments/{transactionId}/refunds", s.listRefunds)
@@ -255,6 +256,7 @@ func dashboardPaymentPage(page core.PaymentPage) map[string]any {
 		item["accountId"] = payment.AccountID
 		item["merchantId"] = payment.MerchantID
 		item["origin"] = payment.Origin
+		item["executionMode"] = payment.Route.ExecutionMode
 		if len(payment.Refunds) > 0 {
 			item["refunds"] = payment.Refunds
 		}
@@ -265,6 +267,32 @@ func dashboardPaymentPage(page core.PaymentPage) map[string]any {
 		response["nextCursor"] = page.NextCursor
 	}
 	return response
+}
+
+func (s *Server) dashboardSimulatePayment(w http.ResponseWriter, r *http.Request) {
+	if !s.validDashboardToken(r) {
+		writeError(w, http.StatusUnauthorized, "unauthorized", "invalid dashboard credentials")
+		return
+	}
+	accountID := strings.TrimSpace(r.URL.Query().Get("accountId"))
+	merchantID := strings.TrimSpace(r.URL.Query().Get("merchantId"))
+	if accountID == "" || merchantID == "" {
+		writeError(w, http.StatusBadRequest, "invalid_request", "accountId and merchantId are required")
+		return
+	}
+	var input core.SimulatePayment
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&input); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+	result, err := s.payments.Simulate(r.Context(), core.Principal{AccountID: accountID, MerchantID: merchantID}, r.PathValue("transactionId"), r.Header.Get("Idempotency-Key"), input)
+	if err != nil {
+		mapError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusAccepted, result)
 }
 
 func dashboardPayoutPage(page core.PayoutPage) map[string]any {

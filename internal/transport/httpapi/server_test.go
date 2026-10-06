@@ -24,6 +24,7 @@ func TestSandboxPaymentSimulationRoutes(t *testing.T) {
 	for _, path := range []string{
 		"/v2/sandbox/payments/tx-1/simulate",
 		"/v2/sandbox/transactions/tx-1/simulate",
+		"/internal/v1/dashboard/payments/tx-1/simulate",
 	} {
 		recorder := httptest.NewRecorder()
 		handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, path, strings.NewReader(`{"scenario":"payment.confirmed"}`)))
@@ -40,6 +41,7 @@ func TestPaymentSimulationRoutesAreUnavailableOutsideSandbox(t *testing.T) {
 	for _, path := range []string{
 		"/v2/sandbox/payments/tx-1/simulate",
 		"/v2/sandbox/transactions/tx-1/simulate",
+		"/internal/v1/dashboard/payments/tx-1/simulate",
 	} {
 		recorder := httptest.NewRecorder()
 		handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, path, strings.NewReader(`{"scenario":"payment.confirmed"}`)))
