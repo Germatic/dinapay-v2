@@ -1,6 +1,9 @@
 package postgres
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestLegacyBinancePaymentDataPreservesProviderAlternatives(t *testing.T) {
 	got := legacyPaymentData("binancepay", "https://app.binance.com/pay/1", "binance://qr/1", "")
@@ -23,5 +26,21 @@ func TestLegacyBankTransferDoesNotInventReference(t *testing.T) {
 	bank := got["bankTransfer"].(map[string]any)
 	if _, exists := bank["transferReference"]; exists {
 		t.Fatalf("unexpected reference: %#v", bank)
+	}
+}
+
+func TestConsolidatedPaymentQueriesPreserveV2RouteDecision(t *testing.T) {
+	for name, query := range map[string]string{
+		"public":    consolidatedSelect,
+		"dashboard": dashboardConsolidatedSelect,
+	} {
+		t.Run(name, func(t *testing.T) {
+			if !strings.Contains(query, "failure,route_decision,'v2'::text origin") {
+				t.Fatalf("V2 route_decision is not selected: %s", query)
+			}
+			if !strings.Contains(query, "NULL::jsonb,'{}'::jsonb,'v1'::text") {
+				t.Fatalf("V1 branch does not preserve the UNION shape: %s", query)
+			}
+		})
 	}
 }
