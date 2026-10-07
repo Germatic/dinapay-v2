@@ -212,6 +212,23 @@ func TestPayoutDebitsAndCompensatesTotalIncludingFee(t *testing.T) {
 	}
 }
 
+func TestLatePayoutReversalReturnsPrincipalAndRetainsFee(t *testing.T) {
+	store := &payoutStoreStub{}
+	ledger := &payoutLedgerStub{}
+	svc := NewPayouts(store, nil, &payoutConnectorStub{}, ledger, nil)
+	p := testPayout("pending_compensation_reversed")
+	p.Pricing = map[string]any{"feeAmount": "0.25", "platformFeeAmount": "0", "totalDebitAmount": "10.25"}
+
+	svc.process(context.Background(), p)
+
+	if ledger.creditAmount != "10.00" {
+		t.Fatalf("late reversal credit amount=%q, want principal 10.00", ledger.creditAmount)
+	}
+	if len(store.transitions) != 1 || store.transitions[0].next != "reversed" {
+		t.Fatalf("transitions=%#v", store.transitions)
+	}
+}
+
 func TestPayoutPreservesProviderPricingForTransition(t *testing.T) {
 	store := &payoutStoreStub{}
 	result := core.ProviderPayout{ProviderPayoutID: "provider-1", Status: "confirmed", Pricing: map[string]any{"fixedFee": "0.60", "amountToConvert": "9.40"}}
