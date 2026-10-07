@@ -213,7 +213,7 @@ func (s *Payouts) process(ctx context.Context, p core.Payout) {
 			s.applyProvider(ctx, p, result)
 		}
 	case "pending_compensation", "pending_compensation_cancelled", "pending_compensation_reversed":
-		if s.ledger == nil || s.ledger.CreditFailedPayout(ctx, p.AccountID, p.PayoutID, payoutDebitAmount(p), p.Source.Currency) != nil {
+		if s.ledger == nil || s.ledger.CreditFailedPayout(ctx, p.AccountID, p.PayoutID, payoutCompensationAmount(p), p.Source.Currency) != nil {
 			return
 		}
 		next := "failed"
@@ -282,4 +282,15 @@ func payoutDebitAmount(p core.Payout) string {
 		return amount
 	}
 	return p.Source.Amount
+}
+
+// A payout rejected before confirmation releases the complete reservation,
+// including any fee that was never earned. A late provider reversal happens
+// after confirmation, so only the principal is returned and the already
+// incurred fee remains charged.
+func payoutCompensationAmount(p core.Payout) string {
+	if p.OperationalStatus == "pending_compensation_reversed" {
+		return p.Source.Amount
+	}
+	return payoutDebitAmount(p)
 }
