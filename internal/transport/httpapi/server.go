@@ -29,6 +29,7 @@ type Server struct {
 	dashboardReader core.DashboardPaymentReader
 	failureReader   core.DashboardFailureReader
 	dashboardToken  string
+	settlementToken string
 	webhooks        core.WebhookSubscriptionStore
 }
 
@@ -37,7 +38,14 @@ func New(payments *app.Payments, refunds *app.Refunds, payouts *app.Payouts, eve
 }
 
 func NewWithDashboardReader(payments *app.Payments, refunds *app.Refunds, payouts *app.Payouts, events *app.ProviderEvents, auth core.Authenticator, serviceToken string, dashboardReader core.DashboardPaymentReader, dashboardToken string, webhookStores ...core.WebhookSubscriptionStore) http.Handler {
-	s := &Server{payments: payments, refunds: refunds, payouts: payouts, events: events, auth: auth, serviceToken: serviceToken, dashboardReader: dashboardReader, dashboardToken: dashboardToken}
+	return NewWithInternalAccess(payments, refunds, payouts, events, auth, serviceToken, dashboardReader, dashboardToken, "", webhookStores...)
+}
+
+// NewWithInternalAccess keeps dashboard reads and settlement execution under
+// separate credentials. A leaked read token must never be enough to move
+// merchant funds.
+func NewWithInternalAccess(payments *app.Payments, refunds *app.Refunds, payouts *app.Payouts, events *app.ProviderEvents, auth core.Authenticator, serviceToken string, dashboardReader core.DashboardPaymentReader, dashboardToken, settlementToken string, webhookStores ...core.WebhookSubscriptionStore) http.Handler {
+	s := &Server{payments: payments, refunds: refunds, payouts: payouts, events: events, auth: auth, serviceToken: serviceToken, dashboardReader: dashboardReader, dashboardToken: dashboardToken, settlementToken: settlementToken}
 	s.failureReader, _ = dashboardReader.(core.DashboardFailureReader)
 	if len(webhookStores) > 0 {
 		s.webhooks = webhookStores[0]
@@ -79,7 +87,122 @@ func NewWithDashboardReader(payments *app.Payments, refunds *app.Refunds, payout
 	mux.HandleFunc("GET /internal/v1/dashboard/summary", s.dashboardSummary)
 	mux.HandleFunc("GET /internal/v1/dashboard/payments/{transactionId}/failure", s.dashboardPaymentFailure)
 	mux.HandleFunc("GET /internal/v1/dashboard/payouts/{payoutId}/failure", s.dashboardPayoutFailure)
+	mux.HandleFunc("POST /internal/v1/settlement-payouts", s.createSettlementPayout)
+	mux.HandleFunc("GET /internal/v1/settlement-payouts/{payoutId}", s.getSettlementPayout)
 	return withRequestID(mux)
+}
+
+type settlementPayoutRequest struct {
+	AccountID           string `json:"accountId"`
+	MerchantID          string `json:"merchantId"`
+	SettlementRequestID string `json:"settlementRequestId"`
+	Amount              string `json:"amount"`
+	DestinationCBU      string `json:"destinationCbu"`
+	DestinationCUIT     string `json:"destinationCuit,omitempty"`
+	DestinationName     string `json:"destinationName"`
+	Note                string `json:"note,omitempty"`
+	Operator            string `json:"operator"`
+}
+
+func (s *Server) validSettlementToken(r *http.Request) bool {
+	token := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+	return s.settlementToken != "" && len(token) == len(s.settlementToken) && subtle.ConstantTimeCompare([]byte(token), []byte(s.settlementToken)) == 1
+}
+
+func (s *Server) createSettlementPayout(w http.ResponseWriter, r *http.Request) {
+	if !s.validSettlementToken(r) {
+		writeError(w, http.StatusUnauthorized, "unauthorized", "invalid settlement credentials")
+		return
+	}
+	if s.payouts == nil {
+		writeError(w, http.StatusServiceUnavailable, "service_unavailable", "payouts are not configured")
+		return
+	}
+	var req settlementPayoutRequest
+	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+	principal, key, payout, err := settlementPayout(req)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+	result, replayed, err := s.payouts.Create(r.Context(), principal, key, payout)
+	if err != nil {
+		mapError(w, err)
+		return
+	}
+	if replayed {
+		w.Header().Set("Idempotent-Replayed", "true")
+		writeJSON(w, http.StatusOK, result)
+		return
+	}
+	writeJSON(w, http.StatusCreated, result)
+}
+
+func settlementPayout(req settlementPayoutRequest) (core.Principal, string, core.CreatePayout, error) {
+	req.AccountID = strings.TrimSpace(req.AccountID)
+	req.MerchantID = strings.TrimSpace(req.MerchantID)
+	req.SettlementRequestID = strings.TrimSpace(req.SettlementRequestID)
+	req.DestinationCBU = digits(req.DestinationCBU)
+	req.DestinationCUIT = digits(req.DestinationCUIT)
+	req.DestinationName = strings.TrimSpace(req.DestinationName)
+	if req.AccountID == "" || req.MerchantID == "" || req.SettlementRequestID == "" || req.DestinationName == "" || len(req.DestinationCBU) != 22 {
+		return core.Principal{}, "", core.CreatePayout{}, errors.New("accountId, merchantId, settlementRequestId, destinationName and a 22-digit destinationCbu are required")
+	}
+	beneficiary := map[string]any{"name": req.DestinationName}
+	if req.DestinationCUIT != "" {
+		beneficiary["documentType"] = "CUIT"
+		beneficiary["documentNumber"] = req.DestinationCUIT
+		beneficiary["legalName"] = req.DestinationName
+		beneficiary["type"] = "business"
+	}
+	key := "settlement:" + req.SettlementRequestID
+	payout := core.CreatePayout{
+		MerchantID: req.MerchantID,
+		ExternalID: key,
+		Source:     core.Money{Amount: strings.TrimSpace(req.Amount), Currency: "ARS"},
+		Destination: core.PayoutDestination{
+			Country: "AR", Currency: "ARS", Beneficiary: beneficiary,
+			Rail: map[string]any{"type": "ar_bank_transfer", "accountType": "cbu", "accountNumber": req.DestinationCBU},
+		},
+		Description: strings.TrimSpace(req.Note),
+		Metadata: map[string]any{
+			"purpose": "settlement", "settlementRequestId": req.SettlementRequestID, "operator": strings.TrimSpace(req.Operator),
+		},
+	}
+	return core.Principal{AccountID: req.AccountID}, key, payout, nil
+}
+
+func (s *Server) getSettlementPayout(w http.ResponseWriter, r *http.Request) {
+	if !s.validSettlementToken(r) {
+		writeError(w, http.StatusUnauthorized, "unauthorized", "invalid settlement credentials")
+		return
+	}
+	accountID := strings.TrimSpace(r.URL.Query().Get("accountId"))
+	if accountID == "" || !validUUID(r.PathValue("payoutId")) {
+		writeError(w, http.StatusBadRequest, "invalid_request", "accountId and a valid payoutId are required")
+		return
+	}
+	result, err := s.payouts.Get(r.Context(), core.Principal{AccountID: accountID}, r.PathValue("payoutId"))
+	if err != nil {
+		mapError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+func digits(value string) string {
+	var out strings.Builder
+	for _, char := range value {
+		if char >= '0' && char <= '9' {
+			out.WriteRune(char)
+		}
+	}
+	return out.String()
 }
 
 func (s *Server) dashboardPaymentFailure(w http.ResponseWriter, r *http.Request) {
