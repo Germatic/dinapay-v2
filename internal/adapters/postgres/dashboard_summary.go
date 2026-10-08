@@ -58,6 +58,7 @@ const dashboardSummarySQL = `WITH movements AS (
         CASE WHEN COALESCE(pricing->>'platformFeeAmount','') ~ '^-?[0-9]+(\.[0-9]+)?$' THEN (pricing->>'platformFeeAmount')::numeric END,
         COALESCE(pricing->>'feeAmount','') ~ '^-?[0-9]+(\.[0-9]+)?$' AND COALESCE(pricing->>'platformFeeAmount','') ~ '^-?[0-9]+(\.[0-9]+)?$'
  FROM dinapay_v2_payouts
+ WHERE transaction_type='payout'
  UNION ALL
  SELECT COALESCE(p.account_id,''),COALESCE(p.merchant_id,''),COALESCE(p.external_id,''),'out',CASE WHEN p.status='completed' THEN 'confirmed' ELSE p.status END,p.currency,
         p.amount,p.created_at,p.completed_at,COALESCE(p.fee_amount,0),COALESCE(p.platform_fee_amount,0),true

@@ -148,7 +148,13 @@ func (s *Payouts) process(ctx context.Context, p core.Payout) {
 		if s.ledger == nil {
 			return
 		}
-		if err := s.ledger.DebitPayout(ctx, p.AccountID, p.PayoutID, payoutDebitAmount(p), p.Source.Currency); err != nil {
+		var err error
+		if p.TransactionType == "settlement" {
+			err = s.ledger.DebitSettlement(ctx, p.AccountID, settlementReferenceID(p), payoutDebitAmount(p), p.Source.Currency)
+		} else {
+			err = s.ledger.DebitPayout(ctx, p.AccountID, p.PayoutID, payoutDebitAmount(p), p.Source.Currency)
+		}
+		if err != nil {
 			if errors.Is(err, core.ErrInsufficientBalance) {
 				failure := contract.NewPayout(contract.PayoutInsufficientFunds)
 				f := transition("pending_debit")
@@ -213,7 +219,16 @@ func (s *Payouts) process(ctx context.Context, p core.Payout) {
 			s.applyProvider(ctx, p, result)
 		}
 	case "pending_compensation", "pending_compensation_cancelled", "pending_compensation_reversed":
-		if s.ledger == nil || s.ledger.CreditFailedPayout(ctx, p.AccountID, p.PayoutID, payoutCompensationAmount(p), p.Source.Currency) != nil {
+		if s.ledger == nil {
+			return
+		}
+		var err error
+		if p.TransactionType == "settlement" {
+			err = s.ledger.CreditFailedSettlement(ctx, p.AccountID, settlementReferenceID(p), payoutCompensationAmount(p), p.Source.Currency)
+		} else {
+			err = s.ledger.CreditFailedPayout(ctx, p.AccountID, p.PayoutID, payoutCompensationAmount(p), p.Source.Currency)
+		}
+		if err != nil {
 			return
 		}
 		next := "failed"
@@ -225,6 +240,13 @@ func (s *Payouts) process(ctx context.Context, p core.Payout) {
 		}
 		_, _ = s.store.TransitionPayout(ctx, p.PayoutID, next, transition(p.OperationalStatus))
 	}
+}
+
+func settlementReferenceID(p core.Payout) string {
+	if id, ok := p.Metadata["settlementRequestId"].(string); ok && id != "" {
+		return id
+	}
+	return p.PayoutID
 }
 
 func (s *Payouts) resolveDestination(ctx context.Context, p core.Payout) (core.Payout, error) {

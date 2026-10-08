@@ -167,7 +167,7 @@ func TestSettlementPayoutBuildsCanonicalARSPayout(t *testing.T) {
 	if payout.Destination.Rail["type"] != "ar_bank_transfer" || payout.Destination.Rail["accountType"] != "cbu" || payout.Destination.Rail["accountNumber"] != "2850590940090418135201" {
 		t.Fatalf("unexpected rail: %#v", payout.Destination.Rail)
 	}
-	if payout.Destination.Beneficiary["documentNumber"] != "30718899229" || payout.Metadata["purpose"] != "settlement" || payout.Metadata["settlementRequestId"] != "42" {
+	if payout.Destination.Beneficiary["documentNumber"] != "30718899229" || payout.Metadata["purpose"] != "settlement" || payout.Metadata["settlementRequestId"] != "42" || payout.TransactionType != "settlement" {
 		t.Fatalf("unexpected beneficiary or metadata: %#v %#v", payout.Destination.Beneficiary, payout.Metadata)
 	}
 }
