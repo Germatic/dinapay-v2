@@ -149,6 +149,36 @@ func TestMapErrorSanitizesDependencyFailure(t *testing.T) {
 	}
 }
 
+func TestSettlementPayoutBuildsCanonicalARSPayout(t *testing.T) {
+	principal, key, payout, err := settlementPayout(settlementPayoutRequest{
+		AccountID: "account-1", MerchantID: "merchant-1", SettlementRequestID: "42", Amount: "1500.00",
+		DestinationCBU: "28505909-4009-0418-1352-01", DestinationCUIT: "30-71889922-9",
+		DestinationName: "Cliente SA", Note: "Liquidación semanal", Operator: "operator@example.com",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if principal.AccountID != "account-1" || key != "settlement:42" || payout.ExternalID != key || payout.MerchantID != "merchant-1" {
+		t.Fatalf("principal=%#v key=%q payout=%#v", principal, key, payout)
+	}
+	if payout.Source.Amount != "1500.00" || payout.Source.Currency != "ARS" || payout.Destination.Country != "AR" || payout.Destination.Currency != "ARS" {
+		t.Fatalf("unexpected money or market: %#v", payout)
+	}
+	if payout.Destination.Rail["type"] != "ar_bank_transfer" || payout.Destination.Rail["accountType"] != "cbu" || payout.Destination.Rail["accountNumber"] != "2850590940090418135201" {
+		t.Fatalf("unexpected rail: %#v", payout.Destination.Rail)
+	}
+	if payout.Destination.Beneficiary["documentNumber"] != "30718899229" || payout.Metadata["purpose"] != "settlement" || payout.Metadata["settlementRequestId"] != "42" {
+		t.Fatalf("unexpected beneficiary or metadata: %#v %#v", payout.Destination.Beneficiary, payout.Metadata)
+	}
+}
+
+func TestSettlementPayoutRejectsIncompleteDestination(t *testing.T) {
+	_, _, _, err := settlementPayout(settlementPayoutRequest{AccountID: "account-1", MerchantID: "merchant-1", SettlementRequestID: "42", Amount: "100", DestinationCBU: "123", DestinationName: "Cliente"})
+	if err == nil {
+		t.Fatal("expected invalid settlement destination")
+	}
+}
+
 func TestMapErrorClassifiesPaymentBusinessFailures(t *testing.T) {
 	tests := []struct {
 		name       string
