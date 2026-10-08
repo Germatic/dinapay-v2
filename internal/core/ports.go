@@ -73,7 +73,7 @@ type DashboardFailureReader interface {
 }
 
 type ReconciliationFinding struct {
-	ID              int64      `json:"id"`
+	ID              string     `json:"id"`
 	Domain          string     `json:"domain"`
 	OperationID     string     `json:"operationId"`
 	AccountID       string     `json:"accountId"`

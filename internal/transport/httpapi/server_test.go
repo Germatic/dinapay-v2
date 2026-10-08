@@ -397,7 +397,7 @@ type dashboardReconciliationStub struct {
 
 func (s *dashboardReconciliationStub) ListReconciliationFindings(_ context.Context, options core.ReconciliationFindingOptions) (core.ReconciliationFindingPage, error) {
 	s.options = options
-	return core.ReconciliationFindingPage{Data: []core.ReconciliationFinding{{ID: 1, Domain: "payout", Status: "open", Severity: "critical"}}, Total: 1}, nil
+	return core.ReconciliationFindingPage{Data: []core.ReconciliationFinding{{ID: "finding-1", Domain: "payout", Status: "open", Severity: "critical"}}, Total: 1}, nil
 }
 
 func TestDashboardReconciliationRequiresTokenAndForwardsFilters(t *testing.T) {
