@@ -62,6 +62,51 @@ CREATE INDEX IF NOT EXISTS dinacore_balance_outbox_pending_idx
   ON dinacore_balance_outbox (next_attempt_at, created_at)
   WHERE sent = false;
 
+-- Asynchronous financial reconciliation. Transaction processing only enqueues
+-- work; a separate observe-only worker compares terminal operations with the
+-- immutable Dinacore ledger and records actionable findings.
+CREATE TABLE IF NOT EXISTS dinapay_reconciliation_queue (
+  domain          TEXT        NOT NULL,
+  operation_id    UUID        NOT NULL,
+  resource_version BIGINT     NOT NULL DEFAULT 0,
+  next_check_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  attempt_count   INTEGER     NOT NULL DEFAULT 0,
+  locked_until    TIMESTAMPTZ,
+  last_error      TEXT,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (domain, operation_id)
+);
+ALTER TABLE dinapay_reconciliation_queue ADD COLUMN IF NOT EXISTS resource_version BIGINT NOT NULL DEFAULT 0;
+CREATE INDEX IF NOT EXISTS dinapay_reconciliation_queue_claim_idx
+  ON dinapay_reconciliation_queue (next_check_at, created_at)
+  WHERE domain='payout';
+
+CREATE TABLE IF NOT EXISTS dinapay_reconciliation_findings (
+  finding_id      UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+  domain          TEXT        NOT NULL,
+  operation_id    UUID        NOT NULL,
+  account_id      TEXT        NOT NULL,
+  merchant_id     TEXT        NOT NULL,
+  rule_code       TEXT        NOT NULL,
+  severity        TEXT        NOT NULL CHECK (severity IN ('warning','critical')),
+  status          TEXT        NOT NULL DEFAULT 'open' CHECK (status IN ('open','resolved')),
+  currency        TEXT        NOT NULL,
+  difference      NUMERIC(36,18),
+  expected        JSONB       NOT NULL DEFAULT '{}'::jsonb,
+  observed        JSONB       NOT NULL DEFAULT '{}'::jsonb,
+  occurrence_count BIGINT     NOT NULL DEFAULT 1,
+  first_seen_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  last_seen_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  resolved_at     TIMESTAMPTZ,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (domain, operation_id, rule_code)
+);
+CREATE INDEX IF NOT EXISTS dinapay_reconciliation_findings_open_idx
+  ON dinapay_reconciliation_findings (severity, first_seen_at)
+  WHERE status='open';
+
 ALTER TABLE dinapay_v2_payments ADD COLUMN IF NOT EXISTS provider_payment_id TEXT;
 ALTER TABLE dinapay_v2_payments ADD COLUMN IF NOT EXISTS provider_reference TEXT;
 ALTER TABLE dinapay_v2_payments ADD COLUMN IF NOT EXISTS confirmation_date TIMESTAMPTZ;
