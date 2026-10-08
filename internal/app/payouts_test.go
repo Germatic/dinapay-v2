@@ -75,10 +75,25 @@ func (*payoutConnectorStub) CancelPayout(context.Context, core.RouteDecision, co
 }
 
 type payoutLedgerStub struct {
-	debitErr, creditErr error
-	debits, credits     int
-	debitAmount         string
-	creditAmount        string
+	debitErr, creditErr                 error
+	debits, credits                     int
+	debitAmount                         string
+	creditAmount                        string
+	settlementDebits, settlementCredits int
+	settlementReference                 string
+}
+
+func (s *payoutLedgerStub) DebitSettlement(_ context.Context, _, reference, amount, _ string) error {
+	s.settlementDebits++
+	s.settlementReference = reference
+	s.debitAmount = amount
+	return s.debitErr
+}
+func (s *payoutLedgerStub) CreditFailedSettlement(_ context.Context, _, reference, amount, _ string) error {
+	s.settlementCredits++
+	s.settlementReference = reference
+	s.creditAmount = amount
+	return s.creditErr
 }
 
 func (s *payoutLedgerStub) DebitPayout(_ context.Context, _, _, amount, _ string) error {
@@ -117,6 +132,25 @@ func TestPayoutDebitsBeforeProvider(t *testing.T) {
 	svc.process(context.Background(), testPayout("pending_debit"))
 	if ledger.debits != 1 || connector.creates != 0 || len(store.transitions) != 1 || store.transitions[0].next != "pending_provider" {
 		t.Fatalf("debits=%d creates=%d transitions=%#v", ledger.debits, connector.creates, store.transitions)
+	}
+}
+
+func TestSettlementUsesSettlementLedgerReferences(t *testing.T) {
+	store := &payoutStoreStub{}
+	ledger := &payoutLedgerStub{}
+	svc := NewPayouts(store, nil, &payoutConnectorStub{}, ledger, nil)
+	p := testPayout("pending_debit")
+	p.TransactionType = "settlement"
+	p.Metadata = map[string]any{"settlementRequestId": "42"}
+	svc.process(context.Background(), p)
+	if ledger.settlementDebits != 1 || ledger.debits != 0 || ledger.settlementReference != "42" {
+		t.Fatalf("settlement debits=%d payout debits=%d", ledger.settlementDebits, ledger.debits)
+	}
+
+	p.OperationalStatus = "pending_compensation"
+	svc.process(context.Background(), p)
+	if ledger.settlementCredits != 1 || ledger.credits != 0 {
+		t.Fatalf("settlement credits=%d payout credits=%d", ledger.settlementCredits, ledger.credits)
 	}
 }
 

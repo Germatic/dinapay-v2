@@ -201,6 +201,14 @@ CREATE TABLE IF NOT EXISTS dinapay_v2_payouts (
 );
 ALTER TABLE dinapay_v2_payouts ADD COLUMN IF NOT EXISTS failure JSONB;
 ALTER TABLE dinapay_v2_payouts ADD COLUMN IF NOT EXISTS provider_failure JSONB;
+-- Commercial classification is independent from the provider operation used
+-- to execute it. Existing rows intentionally remain payouts.
+ALTER TABLE dinapay_v2_payouts ADD COLUMN IF NOT EXISTS transaction_type TEXT NOT NULL DEFAULT 'payout';
+DO $$ BEGIN
+  ALTER TABLE dinapay_v2_payouts ADD CONSTRAINT dinapay_v2_payouts_transaction_type_check
+    CHECK (transaction_type IN ('payout','settlement'));
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 CREATE TABLE IF NOT EXISTS dinapay_v2_payout_idempotency (
   merchant_id TEXT NOT NULL, idempotency_key TEXT NOT NULL, request_hash TEXT NOT NULL,
   payout_id UUID NOT NULL, status TEXT NOT NULL CHECK(status IN ('pending','complete')),
