@@ -390,6 +390,37 @@ type dashboardFailureStub struct {
 	err    error
 }
 
+type dashboardReconciliationStub struct {
+	dashboardReaderStub
+	options core.ReconciliationFindingOptions
+}
+
+func (s *dashboardReconciliationStub) ListReconciliationFindings(_ context.Context, options core.ReconciliationFindingOptions) (core.ReconciliationFindingPage, error) {
+	s.options = options
+	return core.ReconciliationFindingPage{Data: []core.ReconciliationFinding{{ID: 1, Domain: "payout", Status: "open", Severity: "critical"}}, Total: 1}, nil
+}
+
+func TestDashboardReconciliationRequiresTokenAndForwardsFilters(t *testing.T) {
+	reader := &dashboardReconciliationStub{}
+	h := NewWithDashboardReader(nil, nil, nil, nil, nil, "", reader, "dashboard-secret")
+	path := "/internal/v1/dashboard/reconciliation/findings?status=open&severity=critical&domain=payout&accountId=acc&merchantId=mrc&limit=25&offset=50"
+	unauthorized := httptest.NewRecorder()
+	h.ServeHTTP(unauthorized, httptest.NewRequest(http.MethodGet, path, nil))
+	if unauthorized.Code != http.StatusUnauthorized {
+		t.Fatalf("unauthorized status=%d", unauthorized.Code)
+	}
+	req := httptest.NewRequest(http.MethodGet, path, nil)
+	req.Header.Set("Authorization", "Bearer dashboard-secret")
+	recorder := httptest.NewRecorder()
+	h.ServeHTTP(recorder, req)
+	if recorder.Code != http.StatusOK || reader.options.Limit != 25 || reader.options.Offset != 50 || reader.options.Status != "open" || reader.options.Severity != "critical" || reader.options.Domain != "payout" || reader.options.AccountID != "acc" || reader.options.MerchantID != "mrc" {
+		t.Fatalf("status=%d options=%+v body=%s", recorder.Code, reader.options, recorder.Body.String())
+	}
+	if recorder.Header().Get("Cache-Control") != "no-store" {
+		t.Fatal("missing no-store")
+	}
+}
+
 func (s *dashboardFailureStub) GetDashboardPaymentFailure(_ context.Context, id string) (core.OperationalFailure, error) {
 	s.result.ResourceID = id
 	s.result.ResourceType = "payment"
