@@ -20,6 +20,7 @@ import (
 	"github.com/Germatic/dinapay-v2/internal/app"
 	"github.com/Germatic/dinapay-v2/internal/core"
 	"github.com/Germatic/dinapay-v2/internal/observability"
+	"github.com/Germatic/dinapay-v2/internal/reconciliation"
 	"github.com/Germatic/dinapay-v2/internal/transport/httpapi"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -72,8 +73,10 @@ func main() {
 		slog.Warn("data policy observation disabled; control plane configuration is incomplete")
 	}
 	var ledger core.Ledger
+	var ledgerClient *dinacore.Client
 	if os.Getenv("DINACORE_BASE_URL") != "" && os.Getenv("DINACORE_API_KEY") != "" {
-		ledger = dinacore.New(os.Getenv("DINACORE_BASE_URL"), os.Getenv("DINACORE_API_KEY"))
+		ledgerClient = dinacore.New(os.Getenv("DINACORE_BASE_URL"), os.Getenv("DINACORE_API_KEY"))
+		ledger = ledgerClient
 	}
 	nativeRefunds, _ := store.(core.RefundStore)
 	refunds := app.NewRefunds(store, nativeRefunds, httpclient.NewLegacyRefundClient(env("LEGACY_DINAPAY_URL", "http://localhost:8090")), connectors, ledger)
@@ -85,8 +88,8 @@ func main() {
 	var payouts *app.Payouts
 	if nativePayouts != nil {
 		var payoutLedger core.PayoutLedger
-		if ledger != nil {
-			payoutLedger = ledger.(*dinacore.Client)
+		if ledgerClient != nil {
+			payoutLedger = ledgerClient
 		}
 		payouts = app.NewPayouts(nativePayouts, httpclient.NewRouter(env("ROUTER_URL", "http://localhost:8091"), os.Getenv("SERVICE_TOKEN")), connectors, payoutLedger, auth)
 		if dataPolicyObserver != nil {
@@ -106,8 +109,14 @@ func main() {
 		}
 	}
 	events := app.NewProviderEvents(store)
-	if pool != nil && os.Getenv("DINACORE_BASE_URL") != "" && os.Getenv("DINACORE_API_KEY") != "" {
-		go dinacore.NewOutboxWorker(pool, ledger.(*dinacore.Client)).Run(context.Background())
+	if pool != nil && ledgerClient != nil {
+		go dinacore.NewOutboxWorker(pool, ledgerClient).Run(context.Background())
+		if strings.EqualFold(strings.TrimSpace(os.Getenv("RECONCILIATION_MODE")), "observe") {
+			go reconciliation.NewPayoutWorker(pool, ledgerClient, envInt("RECONCILIATION_BATCH_SIZE", 50), envDuration("RECONCILIATION_INTERVAL", 10*time.Second)).Run(context.Background())
+			slog.Info("payout reconciliation enabled", "mode", "observe")
+		} else {
+			slog.Info("payout reconciliation disabled", "mode", env("RECONCILIATION_MODE", "off"))
+		}
 	}
 	if pool != nil {
 		go webhooks.NewWorker(pool, envInt("WEBHOOK_DISPATCH_CONCURRENCY", 8)).Run(context.Background())
@@ -141,6 +150,12 @@ func collectMetrics(ctx context.Context, pool *pgxpool.Pool) {
 		}
 		if err == nil {
 			observability.SetPersistent(webhooks, webhookAge, ledger, ledgerAge, unknownPayouts, unknownPayoutAge, unknownRefunds, unknownRefundAge)
+			var openFindings, criticalFindings, oldestFindingAge, reconciliationBacklog float64
+			if reconciliationErr := pool.QueryRow(ctx, `SELECT count(*)::float8,count(*) FILTER(WHERE severity='critical')::float8,COALESCE(EXTRACT(EPOCH FROM now()-min(first_seen_at)),0)::float8 FROM dinapay_reconciliation_findings WHERE status='open'`).Scan(&openFindings, &criticalFindings, &oldestFindingAge); reconciliationErr == nil {
+				if reconciliationErr = pool.QueryRow(ctx, `SELECT count(*)::float8 FROM dinapay_reconciliation_queue WHERE next_check_at<=now()`).Scan(&reconciliationBacklog); reconciliationErr == nil {
+					observability.SetReconciliation(openFindings, criticalFindings, oldestFindingAge, reconciliationBacklog)
+				}
+			}
 		}
 		select {
 		case <-ctx.Done():

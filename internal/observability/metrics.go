@@ -170,6 +170,15 @@ func SetPersistent(webhooks, webhookAge, ledger, ledgerAge, unknownPayouts, unkn
 	metrics.gauges["dinapay_refund_provider_unknown_oldest_seconds"] = unknownRefundAge
 }
 
+func SetReconciliation(open, critical, oldestAge, backlog float64) {
+	metrics.Lock()
+	defer metrics.Unlock()
+	metrics.gauges["dinapay_reconciliation_findings_open"] = open
+	metrics.gauges["dinapay_reconciliation_findings_critical"] = critical
+	metrics.gauges["dinapay_reconciliation_findings_oldest_seconds"] = oldestAge
+	metrics.gauges["dinapay_reconciliation_queue_pending"] = backlog
+}
+
 func ObserveHTTP(method, route string, status int, elapsed time.Duration) {
 	if route == "" {
 		route = "unmatched"

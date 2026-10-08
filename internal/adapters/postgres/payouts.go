@@ -315,6 +315,11 @@ func (s *Store) TransitionPayout(ctx context.Context, id, next string, f map[str
 			return p, err
 		}
 	}
+	if next == "confirmed" || next == "failed" || next == "cancelled" || next == "reversed" {
+		if _, err = tx.Exec(ctx, `INSERT INTO dinapay_reconciliation_queue(domain,operation_id,resource_version,next_check_at) VALUES('payout',$1,$2,now()+interval '30 seconds') ON CONFLICT(domain,operation_id) DO UPDATE SET resource_version=GREATEST(dinapay_reconciliation_queue.resource_version,excluded.resource_version),next_check_at=LEAST(dinapay_reconciliation_queue.next_check_at,excluded.next_check_at),locked_until=NULL,last_error=NULL,updated_at=now()`, p.PayoutID, p.ResourceVersion); err != nil {
+			return p, err
+		}
+	}
 	if publicPayoutStatus(expected) != p.Status {
 		eventID := deterministicID("payout.status_changed:" + id + ":" + next)
 		payload, _ := json.Marshal(map[string]any{"eventId": eventID, "eventType": "payout.status_changed", "apiVersion": "2", "merchantId": p.MerchantID, "creationDate": nowUTC(), "resourceVersion": p.ResourceVersion, "previousStatus": publicPayoutStatus(expected), "data": map[string]any{"object": p}})
