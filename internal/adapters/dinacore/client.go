@@ -8,6 +8,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -19,6 +20,16 @@ import (
 type Client struct {
 	baseURL, apiKey string
 	http            *http.Client
+}
+
+type LedgerEntry struct {
+	ID         string    `json:"id"`
+	MerchantID string    `json:"merchantId"`
+	Currency   string    `json:"currency"`
+	Amount     string    `json:"amount"`
+	RefType    string    `json:"refType"`
+	RefID      string    `json:"refId"`
+	CreatedAt  time.Time `json:"createdAt"`
 }
 
 func New(baseURL, apiKey string) *Client {
@@ -115,6 +126,31 @@ func normalizeBalanceAmount(value string) (string, error) {
 	return integer + "." + fraction, nil
 }
 
+func (c *Client) LedgerEntries(ctx context.Context, refID string) ([]LedgerEntry, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/api/balance/ledger/"+url.PathEscape(refID), nil)
+	if err != nil {
+		return nil, err
+	}
+	if c.apiKey != "" {
+		req.Header.Set("X-Api-Key", c.apiKey)
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		message, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		return nil, fmt.Errorf("dinacore ledger status %d: %s", resp.StatusCode, message)
+	}
+	var payload struct {
+		Entries []LedgerEntry `json:"entries"`
+	}
+	if err = json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&payload); err != nil {
+		return nil, fmt.Errorf("decode dinacore ledger evidence: %w", err)
+	}
+	return payload.Entries, nil
+}
 func (c *Client) post(ctx context.Context, path string, payload any) error {
 	body, err := json.Marshal(payload)
 	if err != nil {

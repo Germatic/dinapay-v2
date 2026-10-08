@@ -279,12 +279,28 @@ type RouteDecision struct {
 	ConnectorID          string           `json:"connectorId"`
 	Provider             string           `json:"provider"`
 	ProviderConnectionID string           `json:"providerConnectionId"`
+	ExecutionMode        string           `json:"executionMode"`
 	Rail                 string           `json:"rail"`
 	DestinationMode      string           `json:"destinationMode,omitempty"`
 	Binding              *ProviderBinding `json:"binding,omitempty"`
 	PolicyVersion        string           `json:"policyVersion"`
 	DecidedAt            time.Time        `json:"decidedAt"`
 	ReasonCodes          []string         `json:"reasonCodes"`
+}
+
+type SimulatePayment struct {
+	Scenario     string         `json:"scenario"`
+	DelaySeconds int            `json:"delaySeconds,omitempty"`
+	Payer        map[string]any `json:"payer,omitempty"`
+	ProviderData map[string]any `json:"providerData,omitempty"`
+}
+
+type SimulationAccepted struct {
+	SimulationID      string    `json:"simulationId"`
+	TransactionID     string    `json:"transactionId"`
+	RequestedScenario string    `json:"requestedScenario"`
+	Status            string    `json:"status"`
+	ScheduledAt       time.Time `json:"scheduledAt"`
 }
 
 type ProviderPayment struct {

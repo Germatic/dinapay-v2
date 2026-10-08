@@ -1,6 +1,9 @@
 package core
 
-import "context"
+import (
+	"context"
+	"time"
+)
 
 type Router interface {
 	Resolve(context.Context, RouteRequest) (RouteDecision, error)
@@ -10,6 +13,10 @@ type Connector interface {
 	CreatePayment(context.Context, RouteDecision, Payment, string, string) (ProviderPayment, error)
 	CreateRefund(context.Context, RouteDecision, Payment, Refund, string) (ProviderRefund, error)
 	GetRefund(context.Context, RouteDecision, Refund) (ProviderRefund, error)
+}
+
+type PaymentSimulator interface {
+	SimulatePayment(context.Context, RouteDecision, Payment, SimulatePayment, string) (SimulationAccepted, error)
 }
 
 type PayoutConnector interface {
@@ -63,6 +70,41 @@ type DashboardPaymentReader interface {
 type DashboardFailureReader interface {
 	GetDashboardPaymentFailure(context.Context, string) (OperationalFailure, error)
 	GetDashboardPayoutFailure(context.Context, string) (OperationalFailure, error)
+}
+
+type ReconciliationFinding struct {
+	ID              string     `json:"id"`
+	Domain          string     `json:"domain"`
+	OperationID     string     `json:"operationId"`
+	AccountID       string     `json:"accountId"`
+	MerchantID      string     `json:"merchantId"`
+	RuleCode        string     `json:"ruleCode"`
+	Severity        string     `json:"severity"`
+	Status          string     `json:"status"`
+	Currency        string     `json:"currency"`
+	Difference      string     `json:"difference"`
+	Expected        any        `json:"expected"`
+	Observed        any        `json:"observed"`
+	OccurrenceCount int        `json:"occurrenceCount"`
+	FirstSeenAt     time.Time  `json:"firstSeenAt"`
+	LastSeenAt      time.Time  `json:"lastSeenAt"`
+	ResolvedAt      *time.Time `json:"resolvedAt,omitempty"`
+}
+
+type ReconciliationFindingOptions struct {
+	Limit, Offset                                   int
+	Status, Severity, Domain, AccountID, MerchantID string
+}
+type ReconciliationFindingPage struct {
+	Data    []ReconciliationFinding `json:"data"`
+	Total   int                     `json:"total"`
+	HasMore bool                    `json:"hasMore"`
+}
+
+// DashboardReconciliationReader exposes reconciliation evidence to trusted
+// operational tooling. It is intentionally read-only.
+type DashboardReconciliationReader interface {
+	ListReconciliationFindings(context.Context, ReconciliationFindingOptions) (ReconciliationFindingPage, error)
 }
 
 type WebhookSubscriptionStore interface {
@@ -134,4 +176,17 @@ type DataPolicyObservation struct {
 
 type DataPolicyObserver interface {
 	Evaluate(context.Context, DataPolicyObservation) error
+}
+
+// ScreeningGate is the provider-neutral compliance boundary. Implementations
+// decide fail-open/fail-closed behavior from the effective screening mode; the
+// payment orchestrator never imports provider-specific concepts.
+type ScreeningGate interface {
+	Evaluate(context.Context, ScreeningObservation) error
+}
+
+type ScreeningObservation struct {
+	OperationID, AccountID, MerchantID, ResourceType, ResourceID string
+	Country, PaymentMethod, Rail, Environment                    string
+	Subject                                                      map[string]any
 }

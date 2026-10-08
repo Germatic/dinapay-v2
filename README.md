@@ -39,6 +39,54 @@ their V1 behavior. V2 deliveries target registrations explicitly marked `2`.
 
 Provider credentials and provider payloads never enter this service.
 
+## Sandbox payment simulation
+
+Merchants whose sandbox capability is configured with `executionMode=simulated`
+can drive a payment outcome without depending on a provider sandbox:
+
+```http
+POST /v2/sandbox/payments/{transactionId}/simulate
+Authorization: Bearer <sandbox-api-key>
+Idempotency-Key: <unique-key>
+Content-Type: application/json
+
+{
+  "scenario": "payment.confirmed",
+  "payer": {
+    "name": "Sandbox payer",
+    "documentType": "CUIT",
+    "documentNumber": "20234567897"
+  }
+}
+```
+
+Supported scenarios are `payment.pending`, `payment.confirmed`,
+`payment.rejected`, and `payment.expired`. The endpoint returns `202 Accepted`;
+the resulting state is observed through the normal payment read and webhook
+interfaces. It requires `payments:write`, enforces merchant ownership and an
+idempotency key, and is not registered outside sandbox. The original
+`/v2/sandbox/transactions/{transactionId}/simulate` path remains as a
+compatibility alias.
+
+## Financial reconciliation
+
+Payout reconciliation is asynchronous and disabled by default. Set
+`RECONCILIATION_MODE=observe` only after the deployed Dinacore version exposes
+the authenticated ledger-evidence endpoint. Optional controls are
+`RECONCILIATION_BATCH_SIZE` (default `50`) and `RECONCILIATION_INTERVAL`
+(default `10s`).
+
+Terminal payout transitions enqueue constant-time work in the same database
+transaction. The worker then compares the expected debit and compensation with
+Dinacore's immutable ledger and records idempotent findings; it never changes a
+balance. A payout resource version protects newer transitions from being
+removed by an older concurrent reconciliation attempt. The metrics
+`dinapay_reconciliation_findings_open`,
+`dinapay_reconciliation_findings_critical`,
+`dinapay_reconciliation_findings_oldest_seconds`, and
+`dinapay_reconciliation_queue_pending` expose operational health without
+high-cardinality labels.
+
 ## Data-policy observation
 
 When `CONTROL_PLANE_URL` and `CONTROL_PLANE_RUNTIME_TOKEN` are configured,

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/url"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -62,6 +63,7 @@ type Payments struct {
 	checkoutBase string
 	now          func() time.Time
 	dataPolicies core.DataPolicyObserver
+	screening    core.ScreeningGate
 }
 
 func NewPayments(router core.Router, connector core.Connector, store core.PaymentStore, merchants core.Authenticator, checkoutBase string) *Payments {
@@ -70,6 +72,11 @@ func NewPayments(router core.Router, connector core.Connector, store core.Paymen
 
 func (s *Payments) WithDataPolicyObserver(observer core.DataPolicyObserver) *Payments {
 	s.dataPolicies = observer
+	return s
+}
+
+func (s *Payments) WithScreeningGate(gate core.ScreeningGate) *Payments {
+	s.screening = gate
 	return s
 }
 
@@ -119,6 +126,16 @@ func (s *Payments) Create(ctx context.Context, principal core.Principal, in core
 	}
 	if s.dataPolicies != nil {
 		if err := s.dataPolicies.Evaluate(ctx, core.DataPolicyObservation{Resource: "payment", AccountID: principal.AccountID, MerchantID: merchantID, Provider: route.Provider, Country: country, Currency: in.Currency, PaymentMethod: in.PaymentMethod, Rail: route.Rail, DestinationMode: route.DestinationMode, Data: map[string]any{"customer": map[string]any(in.Customer)}}); err != nil {
+			return core.Payment{}, false, err
+		}
+	}
+	if s.screening != nil {
+		if err := s.screening.Evaluate(ctx, core.ScreeningObservation{
+			OperationID: "screen:payment:" + txID + ":customer", AccountID: principal.AccountID,
+			MerchantID: merchantID, ResourceType: "payment", ResourceID: txID,
+			Country: country, PaymentMethod: in.PaymentMethod, Rail: route.Rail,
+			Subject: map[string]any(in.Customer),
+		}); err != nil {
 			return core.Payment{}, false, err
 		}
 	}
@@ -177,6 +194,24 @@ func (s *Payments) Get(ctx context.Context, principal core.Principal, transactio
 		s.normalizeRead(&p)
 	}
 	return p, err
+}
+
+func (s *Payments) Simulate(ctx context.Context, principal core.Principal, transactionID, idempotencyKey string, in core.SimulatePayment) (core.SimulationAccepted, error) {
+	if strings.TrimSpace(idempotencyKey) == "" || transactionID == "" || !slices.Contains([]string{"payment.pending", "payment.confirmed", "payment.rejected", "payment.expired"}, in.Scenario) || in.DelaySeconds < 0 || in.DelaySeconds > 3600 {
+		return core.SimulationAccepted{}, ErrInvalid
+	}
+	payment, err := s.store.Get(ctx, principal.AccountID, principal.MerchantID, transactionID)
+	if err != nil {
+		return core.SimulationAccepted{}, err
+	}
+	if payment.Route.ExecutionMode != "simulated" || payment.ProviderPaymentID == "" {
+		return core.SimulationAccepted{}, core.ErrSimulationUnavailable
+	}
+	simulator, ok := s.connector.(core.PaymentSimulator)
+	if !ok {
+		return core.SimulationAccepted{}, core.ErrSimulationUnavailable
+	}
+	return simulator.SimulatePayment(ctx, payment.Route, payment, in, idempotencyKey)
 }
 
 func (s *Payments) Checkout(ctx context.Context, transactionID string) (core.CheckoutPayment, error) {

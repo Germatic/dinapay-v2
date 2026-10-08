@@ -20,17 +20,18 @@ import (
 )
 
 type Server struct {
-	payments        *app.Payments
-	refunds         *app.Refunds
-	payouts         *app.Payouts
-	events          *app.ProviderEvents
-	auth            core.Authenticator
-	serviceToken    string
-	dashboardReader core.DashboardPaymentReader
-	failureReader   core.DashboardFailureReader
-	dashboardToken  string
-	settlementToken string
-	webhooks        core.WebhookSubscriptionStore
+	payments             *app.Payments
+	refunds              *app.Refunds
+	payouts              *app.Payouts
+	events               *app.ProviderEvents
+	auth                 core.Authenticator
+	serviceToken         string
+	dashboardReader      core.DashboardPaymentReader
+	failureReader        core.DashboardFailureReader
+	reconciliationReader core.DashboardReconciliationReader
+	dashboardToken       string
+	settlementToken      string
+	webhooks             core.WebhookSubscriptionStore
 }
 
 func New(payments *app.Payments, refunds *app.Refunds, payouts *app.Payouts, events *app.ProviderEvents, auth core.Authenticator, serviceToken string) http.Handler {
@@ -47,6 +48,7 @@ func NewWithDashboardReader(payments *app.Payments, refunds *app.Refunds, payout
 func NewWithInternalAccess(payments *app.Payments, refunds *app.Refunds, payouts *app.Payouts, events *app.ProviderEvents, auth core.Authenticator, serviceToken string, dashboardReader core.DashboardPaymentReader, dashboardToken, settlementToken string, webhookStores ...core.WebhookSubscriptionStore) http.Handler {
 	s := &Server{payments: payments, refunds: refunds, payouts: payouts, events: events, auth: auth, serviceToken: serviceToken, dashboardReader: dashboardReader, dashboardToken: dashboardToken, settlementToken: settlementToken}
 	s.failureReader, _ = dashboardReader.(core.DashboardFailureReader)
+	s.reconciliationReader, _ = dashboardReader.(core.DashboardReconciliationReader)
 	if len(webhookStores) > 0 {
 		s.webhooks = webhookStores[0]
 	}
@@ -65,6 +67,14 @@ func NewWithInternalAccess(payments *app.Payments, refunds *app.Refunds, payouts
 	mux.HandleFunc("POST /v2/payments", s.create)
 	mux.HandleFunc("GET /v2/payments", s.list)
 	mux.HandleFunc("GET /v2/payments/{transactionId}", s.get)
+	if strings.EqualFold(strings.TrimSpace(buildinfo.Current("dinapay-v2").Environment), "sandbox") {
+		mux.HandleFunc("POST /v2/sandbox/payments/{transactionId}/simulate", s.simulatePayment)
+		// Kept as a compatibility alias for clients that adopted the original
+		// transaction-oriented sandbox route before the Payments API naming was
+		// standardized.
+		mux.HandleFunc("POST /v2/sandbox/transactions/{transactionId}/simulate", s.simulatePayment)
+		mux.HandleFunc("POST /internal/v1/dashboard/payments/{transactionId}/simulate", s.dashboardSimulatePayment)
+	}
 	mux.HandleFunc("POST /v2/payments/{transactionId}/refunds", s.createRefund)
 	mux.HandleFunc("GET /v2/payments/{transactionId}/refunds", s.listRefunds)
 	mux.HandleFunc("GET /v2/refunds/{refundId}", s.getRefund)
@@ -89,6 +99,7 @@ func NewWithInternalAccess(payments *app.Payments, refunds *app.Refunds, payouts
 	mux.HandleFunc("GET /internal/v1/dashboard/payouts/{payoutId}/failure", s.dashboardPayoutFailure)
 	mux.HandleFunc("POST /internal/v1/settlement-payouts", s.createSettlementPayout)
 	mux.HandleFunc("GET /internal/v1/settlement-payouts/{payoutId}", s.getSettlementPayout)
+	mux.HandleFunc("GET /internal/v1/dashboard/reconciliation/findings", s.dashboardReconciliationFindings)
 	return withRequestID(mux)
 }
 
@@ -205,6 +216,47 @@ func digits(value string) string {
 	return out.String()
 }
 
+func (s *Server) dashboardReconciliationFindings(w http.ResponseWriter, r *http.Request) {
+	if !s.validDashboardToken(r) || s.reconciliationReader == nil {
+		writeError(w, http.StatusUnauthorized, "unauthorized", "invalid dashboard read credentials")
+		return
+	}
+	limit, ok := dashboardLimit(w, r)
+	if !ok {
+		return
+	}
+	q := r.URL.Query()
+	offset := 0
+	if raw := q.Get("offset"); raw != "" {
+		var err error
+		offset, err = strconv.Atoi(raw)
+		if err != nil || offset < 0 {
+			writeError(w, 400, "invalid_request", "offset must be zero or greater")
+			return
+		}
+	}
+	status, severity, domain := q.Get("status"), q.Get("severity"), q.Get("domain")
+	if status != "" && status != "open" && status != "resolved" {
+		writeError(w, 400, "invalid_request", "status must be open or resolved")
+		return
+	}
+	if severity != "" && severity != "warning" && severity != "critical" {
+		writeError(w, 400, "invalid_request", "severity must be warning or critical")
+		return
+	}
+	if domain != "" && domain != "payout" && domain != "payment" && domain != "refund" {
+		writeError(w, 400, "invalid_request", "domain must be payment, payout or refund")
+		return
+	}
+	result, err := s.reconciliationReader.ListReconciliationFindings(r.Context(), core.ReconciliationFindingOptions{Limit: limit, Offset: offset, Status: status, Severity: severity, Domain: domain, AccountID: q.Get("accountId"), MerchantID: q.Get("merchantId")})
+	if err != nil {
+		slog.Error("dashboard reconciliation read failed", "error", err, "request_id", core.RequestID(r.Context()))
+		mapError(w, err)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, http.StatusOK, result)
+}
 func (s *Server) dashboardPaymentFailure(w http.ResponseWriter, r *http.Request) {
 	s.dashboardFailure(w, r, "payment", r.PathValue("transactionId"))
 }
@@ -371,6 +423,7 @@ func dashboardPaymentPage(page core.PaymentPage) map[string]any {
 		item["accountId"] = payment.AccountID
 		item["merchantId"] = payment.MerchantID
 		item["origin"] = payment.Origin
+		item["executionMode"] = payment.Route.ExecutionMode
 		if len(payment.Refunds) > 0 {
 			item["refunds"] = payment.Refunds
 		}
@@ -381,6 +434,32 @@ func dashboardPaymentPage(page core.PaymentPage) map[string]any {
 		response["nextCursor"] = page.NextCursor
 	}
 	return response
+}
+
+func (s *Server) dashboardSimulatePayment(w http.ResponseWriter, r *http.Request) {
+	if !s.validDashboardToken(r) {
+		writeError(w, http.StatusUnauthorized, "unauthorized", "invalid dashboard credentials")
+		return
+	}
+	accountID := strings.TrimSpace(r.URL.Query().Get("accountId"))
+	merchantID := strings.TrimSpace(r.URL.Query().Get("merchantId"))
+	if accountID == "" || merchantID == "" {
+		writeError(w, http.StatusBadRequest, "invalid_request", "accountId and merchantId are required")
+		return
+	}
+	var input core.SimulatePayment
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&input); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+	result, err := s.payments.Simulate(r.Context(), core.Principal{AccountID: accountID, MerchantID: merchantID}, r.PathValue("transactionId"), r.Header.Get("Idempotency-Key"), input)
+	if err != nil {
+		mapError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusAccepted, result)
 }
 
 func dashboardPayoutPage(page core.PayoutPage) map[string]any {
@@ -728,6 +807,26 @@ func (s *Server) get(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, result)
 }
 
+func (s *Server) simulatePayment(w http.ResponseWriter, r *http.Request) {
+	p, ok := s.principal(w, r, "payments:write")
+	if !ok {
+		return
+	}
+	var input core.SimulatePayment
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&input); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+	result, err := s.payments.Simulate(r.Context(), p, r.PathValue("transactionId"), r.Header.Get("Idempotency-Key"), input)
+	if err != nil {
+		mapError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusAccepted, result)
+}
+
 func (s *Server) principal(w http.ResponseWriter, r *http.Request, requiredScope string) (core.Principal, bool) {
 	token := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
 	p, err := s.auth.Authenticate(r.Context(), token)
@@ -786,8 +885,14 @@ func mapError(w http.ResponseWriter, err error) {
 		writeError(w, 422, "refund_not_supported", err.Error())
 	case errors.Is(err, core.ErrRouteUnsupported):
 		writeError(w, 422, "payment_method_not_supported", "The requested payment method is not supported for this currency and country.")
+	case errors.Is(err, core.ErrSimulationUnavailable):
+		writeError(w, 422, "simulation_not_available", err.Error())
 	case errors.Is(err, core.ErrProviderRejected):
 		writeError(w, 422, "provider_rejected", "The payment request was rejected.")
+	case errors.Is(err, core.ErrScreeningBlocked), errors.Is(err, core.ErrScreeningReview):
+		// Screening provider identity and match details are intentionally
+		// internal. Merchants receive one stable business response.
+		writeError(w, 422, "transaction_not_allowed", "The transaction cannot be processed.")
 	default:
 		requestID := w.Header().Get("X-Request-Id")
 		slog.Error("request dependency unavailable", "error", err, "request_id", requestID)

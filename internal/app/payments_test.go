@@ -19,6 +19,14 @@ func (routerStub) Resolve(_ context.Context, r core.RouteRequest) (core.RouteDec
 	return core.RouteDecision{RouteDecisionID: "route1", RequestID: r.RequestID, TransactionID: r.TransactionID, Status: "selected", ConnectorID: "connector-test", Provider: "test", ProviderConnectionID: "connection1"}, nil
 }
 
+type simulatedRouterStub struct{ routerStub }
+
+func (simulatedRouterStub) Resolve(ctx context.Context, request core.RouteRequest) (core.RouteDecision, error) {
+	decision, err := (routerStub{}).Resolve(ctx, request)
+	decision.ExecutionMode = "simulated"
+	return decision, err
+}
+
 func TestCreateValidatesAndPersistsReturnURLs(t *testing.T) {
 	auth := static.NewAuth("test-key=account1:merchant1")
 	store := memory.NewStore()
@@ -51,6 +59,18 @@ type connectorStub struct{}
 type dataPolicyStub struct{ err error }
 
 func (s dataPolicyStub) Evaluate(context.Context, core.DataPolicyObservation) error { return s.err }
+
+type screeningStub struct {
+	calls       int
+	observation core.ScreeningObservation
+	err         error
+}
+
+func (s *screeningStub) Evaluate(_ context.Context, input core.ScreeningObservation) error {
+	s.calls++
+	s.observation = input
+	return s.err
+}
 
 type requiredFirstNamePolicyStub struct{}
 
@@ -86,6 +106,34 @@ func (connectorStub) CreatePayment(_ context.Context, _ core.RouteDecision, p co
 	return core.ProviderPayment{TransactionID: p.TransactionID, Provider: "test", ProviderConnectionID: "connection1", ProviderPaymentID: "provider1", Status: "created", ExpiresAt: time.Date(2026, 9, 9, 19, 30, 0, 0, time.UTC), Completion: map[string]any{"type": "redirect", "links": map[string]any{"web": "https://example.com"}}}, nil
 }
 
+func (connectorStub) SimulatePayment(_ context.Context, _ core.RouteDecision, p core.Payment, in core.SimulatePayment, _ string) (core.SimulationAccepted, error) {
+	return core.SimulationAccepted{SimulationID: "simulation-1", TransactionID: p.TransactionID, RequestedScenario: in.Scenario, Status: "accepted", ScheduledAt: time.Now().UTC()}, nil
+}
+
+func TestSimulateRequiresTransactionRoutedForSimulation(t *testing.T) {
+	principal := core.Principal{AccountID: "account1", MerchantID: "merchant1"}
+	create := core.CreatePayment{ExternalID: "simulated-order", Amount: "1.00", Currency: "ARS", PaymentMethod: "qr", Customer: core.Customer{"country": "AR"}}
+
+	simulated := NewPayments(simulatedRouterStub{}, connectorStub{}, memory.NewStore(), static.NewAuth("test-key=account1:merchant1"), "")
+	payment, _, err := simulated.Create(context.Background(), principal, create, "simulated-create")
+	if err != nil {
+		t.Fatal(err)
+	}
+	accepted, err := simulated.Simulate(context.Background(), principal, payment.TransactionID, "simulation-key", core.SimulatePayment{Scenario: "payment.confirmed"})
+	if err != nil || accepted.RequestedScenario != "payment.confirmed" {
+		t.Fatalf("accepted=%#v err=%v", accepted, err)
+	}
+
+	real := NewPayments(routerStub{}, connectorStub{}, memory.NewStore(), static.NewAuth("test-key=account1:merchant1"), "")
+	realPayment, _, err := real.Create(context.Background(), principal, create, "provider-create")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = real.Simulate(context.Background(), principal, realPayment.TransactionID, "simulation-key", core.SimulatePayment{Scenario: "payment.confirmed"}); !errors.Is(err, core.ErrSimulationUnavailable) {
+		t.Fatalf("err=%v", err)
+	}
+}
+
 func TestCreateDoesNotInvokeConnectorWhenDataPolicyRejects(t *testing.T) {
 	connector := &countingConnectorStub{}
 	svc := NewPayments(routerStub{}, connector, memory.NewStore(), static.NewAuth("test-key=account1:merchant1"), "").WithDataPolicyObserver(dataPolicyStub{err: &core.MissingRequiredDataError{Fields: []string{"customer.email"}}})
@@ -94,6 +142,31 @@ func TestCreateDoesNotInvokeConnectorWhenDataPolicyRejects(t *testing.T) {
 	var missing *core.MissingRequiredDataError
 	if !errors.As(err, &missing) || connector.creates != 0 {
 		t.Fatalf("error=%#v connector creates=%d", err, connector.creates)
+	}
+}
+
+func TestCreateScreensBeforeConnector(t *testing.T) {
+	connector := &countingConnectorStub{}
+	gate := &screeningStub{}
+	svc := NewPayments(routerStub{}, connector, memory.NewStore(), static.NewAuth("test-key=account1:merchant1"), "").WithScreeningGate(gate)
+	in := core.CreatePayment{ExternalID: "screened", Amount: "1.00", Currency: "ARS", PaymentMethod: "qr", Customer: core.Customer{"country": "AR", "firstName": "Juan", "lastName": "Perez", "documentNumber": "20234567"}}
+	payment, _, err := svc.Create(context.Background(), core.Principal{AccountID: "account1", MerchantID: "merchant1"}, in, "screen-key")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gate.calls != 1 || connector.creates != 1 || gate.observation.ResourceID != payment.TransactionID || gate.observation.OperationID != "screen:payment:"+payment.TransactionID+":customer" {
+		t.Fatalf("calls=%d connector=%d observation=%+v", gate.calls, connector.creates, gate.observation)
+	}
+}
+
+func TestCreateDoesNotInvokeConnectorWhenScreeningBlocks(t *testing.T) {
+	connector := &countingConnectorStub{}
+	gate := &screeningStub{err: core.ErrScreeningBlocked}
+	svc := NewPayments(routerStub{}, connector, memory.NewStore(), static.NewAuth("test-key=account1:merchant1"), "").WithScreeningGate(gate)
+	in := core.CreatePayment{ExternalID: "blocked", Amount: "1.00", Currency: "ARS", PaymentMethod: "qr", Customer: core.Customer{"country": "AR", "firstName": "Juan", "lastName": "Perez"}}
+	_, _, err := svc.Create(context.Background(), core.Principal{AccountID: "account1", MerchantID: "merchant1"}, in, "block-key")
+	if !errors.Is(err, core.ErrScreeningBlocked) || connector.creates != 0 {
+		t.Fatalf("err=%v connector=%d", err, connector.creates)
 	}
 }
 

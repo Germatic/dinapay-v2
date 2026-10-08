@@ -17,6 +17,40 @@ import (
 	"github.com/Germatic/dinapay-v2/internal/core"
 )
 
+func TestSandboxPaymentSimulationRoutes(t *testing.T) {
+	t.Setenv("DINARIA_ENVIRONMENT", "sandbox")
+	handler := New(nil, nil, nil, nil, static.NewAuth("key=account-1:merchant-1"), "service-token")
+
+	for _, path := range []string{
+		"/v2/sandbox/payments/tx-1/simulate",
+		"/v2/sandbox/transactions/tx-1/simulate",
+		"/internal/v1/dashboard/payments/tx-1/simulate",
+	} {
+		recorder := httptest.NewRecorder()
+		handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, path, strings.NewReader(`{"scenario":"payment.confirmed"}`)))
+		if recorder.Code != http.StatusUnauthorized {
+			t.Fatalf("route %s was not registered: status=%d body=%s", path, recorder.Code, recorder.Body.String())
+		}
+	}
+}
+
+func TestPaymentSimulationRoutesAreUnavailableOutsideSandbox(t *testing.T) {
+	t.Setenv("DINARIA_ENVIRONMENT", "production")
+	handler := New(nil, nil, nil, nil, static.NewAuth("key=account-1:merchant-1"), "service-token")
+
+	for _, path := range []string{
+		"/v2/sandbox/payments/tx-1/simulate",
+		"/v2/sandbox/transactions/tx-1/simulate",
+		"/internal/v1/dashboard/payments/tx-1/simulate",
+	} {
+		recorder := httptest.NewRecorder()
+		handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, path, strings.NewReader(`{"scenario":"payment.confirmed"}`)))
+		if recorder.Code != http.StatusNotFound {
+			t.Fatalf("route %s must not exist in production: status=%d body=%s", path, recorder.Code, recorder.Body.String())
+		}
+	}
+}
+
 func TestHostedCheckoutRendersSafeQRAndMinimalStatus(t *testing.T) {
 	const transactionID = "8dd5d1ee-1ba0-4311-bbbd-fd19765b2f93"
 	store := memory.NewStore()
@@ -189,6 +223,7 @@ func TestMapErrorClassifiesPaymentBusinessFailures(t *testing.T) {
 		{name: "external id", err: core.ErrExternalIDConflict, statusCode: http.StatusConflict, code: "external_id_conflict"},
 		{name: "unsupported route", err: core.ErrRouteUnsupported, statusCode: http.StatusUnprocessableEntity, code: "payment_method_not_supported"},
 		{name: "provider rejection", err: core.ErrProviderRejected, statusCode: http.StatusUnprocessableEntity, code: "provider_rejected"},
+		{name: "screening block", err: core.ErrScreeningBlocked, statusCode: http.StatusUnprocessableEntity, code: "transaction_not_allowed"},
 		{name: "unsupported currency", err: &core.UnsupportedCurrencyError{Field: "source.currency", Currency: "XYZ"}, statusCode: http.StatusBadRequest, code: "unsupported_currency"},
 	}
 	for _, test := range tests {
@@ -384,6 +419,37 @@ type dashboardFailureStub struct {
 	dashboardReaderStub
 	result core.OperationalFailure
 	err    error
+}
+
+type dashboardReconciliationStub struct {
+	dashboardReaderStub
+	options core.ReconciliationFindingOptions
+}
+
+func (s *dashboardReconciliationStub) ListReconciliationFindings(_ context.Context, options core.ReconciliationFindingOptions) (core.ReconciliationFindingPage, error) {
+	s.options = options
+	return core.ReconciliationFindingPage{Data: []core.ReconciliationFinding{{ID: "finding-1", Domain: "payout", Status: "open", Severity: "critical"}}, Total: 1}, nil
+}
+
+func TestDashboardReconciliationRequiresTokenAndForwardsFilters(t *testing.T) {
+	reader := &dashboardReconciliationStub{}
+	h := NewWithDashboardReader(nil, nil, nil, nil, nil, "", reader, "dashboard-secret")
+	path := "/internal/v1/dashboard/reconciliation/findings?status=open&severity=critical&domain=payout&accountId=acc&merchantId=mrc&limit=25&offset=50"
+	unauthorized := httptest.NewRecorder()
+	h.ServeHTTP(unauthorized, httptest.NewRequest(http.MethodGet, path, nil))
+	if unauthorized.Code != http.StatusUnauthorized {
+		t.Fatalf("unauthorized status=%d", unauthorized.Code)
+	}
+	req := httptest.NewRequest(http.MethodGet, path, nil)
+	req.Header.Set("Authorization", "Bearer dashboard-secret")
+	recorder := httptest.NewRecorder()
+	h.ServeHTTP(recorder, req)
+	if recorder.Code != http.StatusOK || reader.options.Limit != 25 || reader.options.Offset != 50 || reader.options.Status != "open" || reader.options.Severity != "critical" || reader.options.Domain != "payout" || reader.options.AccountID != "acc" || reader.options.MerchantID != "mrc" {
+		t.Fatalf("status=%d options=%+v body=%s", recorder.Code, reader.options, recorder.Body.String())
+	}
+	if recorder.Header().Get("Cache-Control") != "no-store" {
+		t.Fatal("missing no-store")
+	}
 }
 
 func (s *dashboardFailureStub) GetDashboardPaymentFailure(_ context.Context, id string) (core.OperationalFailure, error) {
