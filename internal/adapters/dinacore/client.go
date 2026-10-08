@@ -37,20 +37,82 @@ func (c *Client) CreditConfirmedPayment(ctx context.Context, p core.Payment, amo
 }
 
 func (c *Client) CreditBalance(ctx context.Context, accountID, refID, amount, currency string) error {
+	amount, err := normalizeBalanceAmount(amount)
+	if err != nil {
+		return err
+	}
 	return c.post(ctx, "/api/balance/credit", map[string]string{"merchantId": accountID, "currency": currency, "amount": amount, "refType": "cashin", "refId": refID})
 }
 
 func (c *Client) DebitConfirmedRefund(ctx context.Context, merchantID, refundID, amount, currency string) error {
+	amount, err := normalizeBalanceAmount(amount)
+	if err != nil {
+		return err
+	}
 	return c.post(ctx, "/api/balance/debit", map[string]string{"merchantId": merchantID, "currency": currency, "amount": amount, "refType": "refund", "refId": refundID})
 }
 func (c *Client) CreditFailedRefund(ctx context.Context, merchantID, refundID, amount, currency string) error {
+	amount, err := normalizeBalanceAmount(amount)
+	if err != nil {
+		return err
+	}
 	return c.post(ctx, "/api/balance/refund", map[string]string{"merchantId": merchantID, "currency": currency, "amount": amount, "refType": "refund_reservation_release", "refId": refundID})
 }
 func (c *Client) DebitPayout(ctx context.Context, accountID, payoutID, amount, currency string) error {
+	amount, err := normalizeBalanceAmount(amount)
+	if err != nil {
+		return err
+	}
 	return c.post(ctx, "/api/balance/debit", map[string]string{"merchantId": accountID, "currency": currency, "amount": amount, "refType": "payout", "refId": payoutID})
 }
 func (c *Client) CreditFailedPayout(ctx context.Context, accountID, payoutID, amount, currency string) error {
+	amount, err := normalizeBalanceAmount(amount)
+	if err != nil {
+		return err
+	}
 	return c.post(ctx, "/api/balance/refund", map[string]string{"merchantId": accountID, "currency": currency, "amount": amount, "refType": "payout_reservation_release", "refId": payoutID})
+}
+
+// normalizeBalanceAmount returns the canonical decimal representation accepted
+// by Dinacore. PostgreSQL NUMERIC values may include scale padding (for example
+// "29550.000000000000000000"), while Dinacore accepts at most 8 meaningful
+// fractional digits. Values that would require rounding are rejected.
+func normalizeBalanceAmount(value string) (string, error) {
+	value = strings.TrimSpace(value)
+	parts := strings.Split(value, ".")
+	if len(parts) > 2 || value == "" {
+		return "", fmt.Errorf("invalid balance amount %q", value)
+	}
+	integer := parts[0]
+	fraction := ""
+	if len(parts) == 2 {
+		fraction = parts[1]
+	}
+	if integer == "" || strings.HasPrefix(integer, "-") || strings.HasPrefix(integer, "+") {
+		return "", fmt.Errorf("invalid balance amount %q", value)
+	}
+	for _, digits := range []string{integer, fraction} {
+		for _, digit := range digits {
+			if digit < '0' || digit > '9' {
+				return "", fmt.Errorf("invalid balance amount %q", value)
+			}
+		}
+	}
+	integer = strings.TrimLeft(integer, "0")
+	if integer == "" {
+		integer = "0"
+	}
+	fraction = strings.TrimRight(fraction, "0")
+	if len(fraction) > 8 {
+		return "", fmt.Errorf("balance amount %q has more than 8 fractional digits", value)
+	}
+	if integer == "0" && fraction == "" {
+		return "", fmt.Errorf("balance amount must be positive")
+	}
+	if fraction == "" {
+		return integer, nil
+	}
+	return integer + "." + fraction, nil
 }
 
 func (c *Client) post(ctx context.Context, path string, payload any) error {
