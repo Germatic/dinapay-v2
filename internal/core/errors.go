@@ -23,6 +23,8 @@ var (
 	ErrRouteUnsupported      = errors.New("requested payment route is not supported")
 	ErrMissingRequiredData   = errors.New("required transaction data is missing")
 	ErrForbiddenData         = errors.New("transaction data contains forbidden fields")
+	ErrScreeningBlocked      = errors.New("transaction blocked by compliance policy")
+	ErrScreeningReview       = errors.New("transaction requires compliance review")
 )
 
 // MissingRequiredDataError reports the public contract paths required by the

@@ -63,6 +63,7 @@ type Payments struct {
 	checkoutBase string
 	now          func() time.Time
 	dataPolicies core.DataPolicyObserver
+	screening    core.ScreeningGate
 }
 
 func NewPayments(router core.Router, connector core.Connector, store core.PaymentStore, merchants core.Authenticator, checkoutBase string) *Payments {
@@ -71,6 +72,11 @@ func NewPayments(router core.Router, connector core.Connector, store core.Paymen
 
 func (s *Payments) WithDataPolicyObserver(observer core.DataPolicyObserver) *Payments {
 	s.dataPolicies = observer
+	return s
+}
+
+func (s *Payments) WithScreeningGate(gate core.ScreeningGate) *Payments {
+	s.screening = gate
 	return s
 }
 
@@ -120,6 +126,16 @@ func (s *Payments) Create(ctx context.Context, principal core.Principal, in core
 	}
 	if s.dataPolicies != nil {
 		if err := s.dataPolicies.Evaluate(ctx, core.DataPolicyObservation{Resource: "payment", AccountID: principal.AccountID, MerchantID: merchantID, Provider: route.Provider, Country: country, Currency: in.Currency, PaymentMethod: in.PaymentMethod, Rail: route.Rail, DestinationMode: route.DestinationMode, Data: map[string]any{"customer": map[string]any(in.Customer)}}); err != nil {
+			return core.Payment{}, false, err
+		}
+	}
+	if s.screening != nil {
+		if err := s.screening.Evaluate(ctx, core.ScreeningObservation{
+			OperationID: "screen:payment:" + txID + ":customer", AccountID: principal.AccountID,
+			MerchantID: merchantID, ResourceType: "payment", ResourceID: txID,
+			Country: country, PaymentMethod: in.PaymentMethod, Rail: route.Rail,
+			Subject: map[string]any(in.Customer),
+		}); err != nil {
 			return core.Payment{}, false, err
 		}
 	}

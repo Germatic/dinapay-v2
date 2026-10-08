@@ -177,3 +177,16 @@ type DataPolicyObservation struct {
 type DataPolicyObserver interface {
 	Evaluate(context.Context, DataPolicyObservation) error
 }
+
+// ScreeningGate is the provider-neutral compliance boundary. Implementations
+// decide fail-open/fail-closed behavior from the effective screening mode; the
+// payment orchestrator never imports provider-specific concepts.
+type ScreeningGate interface {
+	Evaluate(context.Context, ScreeningObservation) error
+}
+
+type ScreeningObservation struct {
+	OperationID, AccountID, MerchantID, ResourceType, ResourceID string
+	Country, PaymentMethod, Rail, Environment                    string
+	Subject                                                      map[string]any
+}

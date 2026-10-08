@@ -60,6 +60,18 @@ type dataPolicyStub struct{ err error }
 
 func (s dataPolicyStub) Evaluate(context.Context, core.DataPolicyObservation) error { return s.err }
 
+type screeningStub struct {
+	calls       int
+	observation core.ScreeningObservation
+	err         error
+}
+
+func (s *screeningStub) Evaluate(_ context.Context, input core.ScreeningObservation) error {
+	s.calls++
+	s.observation = input
+	return s.err
+}
+
 type requiredFirstNamePolicyStub struct{}
 
 func (requiredFirstNamePolicyStub) Evaluate(_ context.Context, input core.DataPolicyObservation) error {
@@ -130,6 +142,31 @@ func TestCreateDoesNotInvokeConnectorWhenDataPolicyRejects(t *testing.T) {
 	var missing *core.MissingRequiredDataError
 	if !errors.As(err, &missing) || connector.creates != 0 {
 		t.Fatalf("error=%#v connector creates=%d", err, connector.creates)
+	}
+}
+
+func TestCreateScreensBeforeConnector(t *testing.T) {
+	connector := &countingConnectorStub{}
+	gate := &screeningStub{}
+	svc := NewPayments(routerStub{}, connector, memory.NewStore(), static.NewAuth("test-key=account1:merchant1"), "").WithScreeningGate(gate)
+	in := core.CreatePayment{ExternalID: "screened", Amount: "1.00", Currency: "ARS", PaymentMethod: "qr", Customer: core.Customer{"country": "AR", "firstName": "Juan", "lastName": "Perez", "documentNumber": "20234567"}}
+	payment, _, err := svc.Create(context.Background(), core.Principal{AccountID: "account1", MerchantID: "merchant1"}, in, "screen-key")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gate.calls != 1 || connector.creates != 1 || gate.observation.ResourceID != payment.TransactionID || gate.observation.OperationID != "screen:payment:"+payment.TransactionID+":customer" {
+		t.Fatalf("calls=%d connector=%d observation=%+v", gate.calls, connector.creates, gate.observation)
+	}
+}
+
+func TestCreateDoesNotInvokeConnectorWhenScreeningBlocks(t *testing.T) {
+	connector := &countingConnectorStub{}
+	gate := &screeningStub{err: core.ErrScreeningBlocked}
+	svc := NewPayments(routerStub{}, connector, memory.NewStore(), static.NewAuth("test-key=account1:merchant1"), "").WithScreeningGate(gate)
+	in := core.CreatePayment{ExternalID: "blocked", Amount: "1.00", Currency: "ARS", PaymentMethod: "qr", Customer: core.Customer{"country": "AR", "firstName": "Juan", "lastName": "Perez"}}
+	_, _, err := svc.Create(context.Background(), core.Principal{AccountID: "account1", MerchantID: "merchant1"}, in, "block-key")
+	if !errors.Is(err, core.ErrScreeningBlocked) || connector.creates != 0 {
+		t.Fatalf("err=%v connector=%d", err, connector.creates)
 	}
 }
 

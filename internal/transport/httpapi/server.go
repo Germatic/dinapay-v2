@@ -767,6 +767,10 @@ func mapError(w http.ResponseWriter, err error) {
 		writeError(w, 422, "simulation_not_available", err.Error())
 	case errors.Is(err, core.ErrProviderRejected):
 		writeError(w, 422, "provider_rejected", "The payment request was rejected.")
+	case errors.Is(err, core.ErrScreeningBlocked), errors.Is(err, core.ErrScreeningReview):
+		// Screening provider identity and match details are intentionally
+		// internal. Merchants receive one stable business response.
+		writeError(w, 422, "transaction_not_allowed", "The transaction cannot be processed.")
 	default:
 		requestID := w.Header().Get("X-Request-Id")
 		slog.Error("request dependency unavailable", "error", err, "request_id", requestID)

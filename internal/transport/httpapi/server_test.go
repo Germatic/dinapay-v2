@@ -193,6 +193,7 @@ func TestMapErrorClassifiesPaymentBusinessFailures(t *testing.T) {
 		{name: "external id", err: core.ErrExternalIDConflict, statusCode: http.StatusConflict, code: "external_id_conflict"},
 		{name: "unsupported route", err: core.ErrRouteUnsupported, statusCode: http.StatusUnprocessableEntity, code: "payment_method_not_supported"},
 		{name: "provider rejection", err: core.ErrProviderRejected, statusCode: http.StatusUnprocessableEntity, code: "provider_rejected"},
+		{name: "screening block", err: core.ErrScreeningBlocked, statusCode: http.StatusUnprocessableEntity, code: "transaction_not_allowed"},
 		{name: "unsupported currency", err: &core.UnsupportedCurrencyError{Field: "source.currency", Currency: "XYZ"}, statusCode: http.StatusBadRequest, code: "unsupported_currency"},
 	}
 	for _, test := range tests {

@@ -20,6 +20,7 @@ type durationKey struct{ method, route string }
 type providerFailureKey struct{ operation, provider, code string }
 type dataPolicyKey struct{ resource, provider, path, mode string }
 type dataPolicyViolationKey struct{ resource, provider, path, mode, violation string }
+type screeningKey struct{ resource, mode, decision, action, outcome string }
 type histogram struct {
 	count   uint64
 	sum     float64
@@ -50,6 +51,40 @@ var dataPolicyMissing struct {
 var dataPolicyViolations struct {
 	sync.Mutex
 	snapshot atomic.Pointer[map[dataPolicyViolationKey]*atomic.Uint64]
+}
+
+var screeningEvaluations struct {
+	sync.Mutex
+	snapshot atomic.Pointer[map[screeningKey]*atomic.Uint64]
+}
+
+func ObserveScreening(resource, mode, decision, action, outcome string) {
+	key := screeningKey{resource, mode, decision, action, outcome}
+	if current := screeningEvaluations.snapshot.Load(); current != nil {
+		if counter := (*current)[key]; counter != nil {
+			counter.Add(1)
+			return
+		}
+	}
+	screeningEvaluations.Lock()
+	defer screeningEvaluations.Unlock()
+	current := screeningEvaluations.snapshot.Load()
+	if current != nil {
+		if counter := (*current)[key]; counter != nil {
+			counter.Add(1)
+			return
+		}
+	}
+	next := map[screeningKey]*atomic.Uint64{}
+	if current != nil {
+		for existing, counter := range *current {
+			next[existing] = counter
+		}
+	}
+	counter := &atomic.Uint64{}
+	counter.Add(1)
+	next[key] = counter
+	screeningEvaluations.snapshot.Store(&next)
 }
 
 // ObserveDataPolicyViolation records the generic policy signal while retaining
@@ -237,6 +272,11 @@ func Handler() http.Handler {
 		if violations := dataPolicyViolations.snapshot.Load(); violations != nil {
 			for key, counter := range *violations {
 				lines = append(lines, fmt.Sprintf("dinapay_data_policy_violations_total{service=%q,resource=%q,provider=%q,path=%q,mode=%q,violation=%q} %d", service, key.resource, key.provider, key.path, key.mode, key.violation, counter.Load()))
+			}
+		}
+		if evaluations := screeningEvaluations.snapshot.Load(); evaluations != nil {
+			for key, counter := range *evaluations {
+				lines = append(lines, fmt.Sprintf("dinapay_screening_evaluations_total{service=%q,resource=%q,mode=%q,decision=%q,action=%q,outcome=%q} %d", service, key.resource, key.mode, key.decision, key.action, key.outcome, counter.Load()))
 			}
 		}
 		sort.Strings(lines)

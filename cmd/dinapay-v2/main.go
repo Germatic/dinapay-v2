@@ -15,6 +15,7 @@ import (
 	"github.com/Germatic/dinapay-v2/internal/adapters/httpclient"
 	"github.com/Germatic/dinapay-v2/internal/adapters/memory"
 	"github.com/Germatic/dinapay-v2/internal/adapters/postgres"
+	"github.com/Germatic/dinapay-v2/internal/adapters/screening"
 	"github.com/Germatic/dinapay-v2/internal/adapters/static"
 	"github.com/Germatic/dinapay-v2/internal/adapters/webhooks"
 	"github.com/Germatic/dinapay-v2/internal/app"
@@ -63,6 +64,14 @@ func main() {
 		connectors, store, auth,
 		os.Getenv("CHECKOUT_BASE_URL"),
 	)
+	if baseURL := strings.TrimSpace(os.Getenv("SCREENING_URL")); baseURL != "" {
+		failOpen := strings.EqualFold(env("SCREENING_FAIL_OPEN", "true"), "true")
+		screeningClient := screening.New(baseURL, os.Getenv("SCREENING_INTERNAL_KEY"), env("DINARIA_ENVIRONMENT", "sandbox"), envDuration("SCREENING_TIMEOUT", 3*time.Second), failOpen, observability.ObserveScreening)
+		payments.WithScreeningGate(screeningClient)
+		slog.Info("screening enabled", "fail_open", failOpen)
+	} else {
+		slog.Info("screening disabled")
+	}
 	var dataPolicyObserver core.DataPolicyObserver
 	if baseURL, token := os.Getenv("CONTROL_PLANE_URL"), os.Getenv("CONTROL_PLANE_RUNTIME_TOKEN"); baseURL != "" && token != "" {
 		client := datapolicy.New(baseURL, token, env("DINARIA_ENVIRONMENT", "sandbox"), observability.ObserveDataPolicyViolation)
