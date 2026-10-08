@@ -148,6 +148,9 @@ type CreatePayout struct {
 	Remitter    map[string]any    `json:"remitter,omitempty"`
 	Description string            `json:"description,omitempty"`
 	Metadata    map[string]any    `json:"metadata,omitempty"`
+	// TransactionType is assigned only by trusted internal entry points. Public
+	// payout requests cannot set it because it is intentionally absent from JSON.
+	TransactionType string `json:"-"`
 }
 
 type Payout struct {
@@ -178,6 +181,7 @@ type Payout struct {
 	NextAttemptAt     time.Time         `json:"-"`
 	OperationalStatus string            `json:"-"`
 	Origin            string            `json:"-"`
+	TransactionType   string            `json:"-"`
 }
 
 type PayoutListOptions struct {

@@ -83,6 +83,20 @@ func (c *Client) CreditFailedPayout(ctx context.Context, accountID, payoutID, am
 	}
 	return c.post(ctx, "/api/balance/refund", map[string]string{"merchantId": accountID, "currency": currency, "amount": amount, "refType": "payout_reservation_release", "refId": payoutID})
 }
+func (c *Client) DebitSettlement(ctx context.Context, accountID, settlementID, amount, currency string) error {
+	amount, err := normalizeBalanceAmount(amount)
+	if err != nil {
+		return err
+	}
+	return c.post(ctx, "/api/balance/debit", map[string]string{"merchantId": accountID, "currency": currency, "amount": amount, "refType": "settlement", "refId": settlementID})
+}
+func (c *Client) CreditFailedSettlement(ctx context.Context, accountID, settlementID, amount, currency string) error {
+	amount, err := normalizeBalanceAmount(amount)
+	if err != nil {
+		return err
+	}
+	return c.post(ctx, "/api/balance/refund", map[string]string{"merchantId": accountID, "currency": currency, "amount": amount, "refType": "settlement_reservation_release", "refId": settlementID})
+}
 
 // normalizeBalanceAmount returns the canonical decimal representation accepted
 // by Dinacore. PostgreSQL NUMERIC values may include scale padding (for example

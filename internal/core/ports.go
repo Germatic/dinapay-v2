@@ -133,6 +133,8 @@ type Ledger interface {
 type PayoutLedger interface {
 	DebitPayout(context.Context, string, string, string, string) error
 	CreditFailedPayout(context.Context, string, string, string, string) error
+	DebitSettlement(context.Context, string, string, string, string) error
+	CreditFailedSettlement(context.Context, string, string, string, string) error
 }
 
 type PayoutStore interface {

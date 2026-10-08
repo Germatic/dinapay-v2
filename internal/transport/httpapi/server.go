@@ -184,6 +184,7 @@ func settlementPayout(req settlementPayoutRequest) (core.Principal, string, core
 		Metadata: map[string]any{
 			"purpose": "settlement", "settlementRequestId": req.SettlementRequestID, "operator": strings.TrimSpace(req.Operator),
 		},
+		TransactionType: "settlement",
 	}
 	return core.Principal{AccountID: req.AccountID}, key, payout, nil
 }
