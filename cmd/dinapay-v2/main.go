@@ -64,13 +64,15 @@ func main() {
 		connectors, store, auth,
 		os.Getenv("CHECKOUT_BASE_URL"),
 	)
+	var riskControlGate core.RiskControlGate
 	if baseURL := strings.TrimSpace(os.Getenv("SCREENING_URL")); baseURL != "" {
 		failOpen := strings.EqualFold(env("SCREENING_FAIL_OPEN", "true"), "true")
 		screeningClient := screening.New(baseURL, os.Getenv("SCREENING_INTERNAL_KEY"), env("DINARIA_ENVIRONMENT", "sandbox"), envDuration("SCREENING_TIMEOUT", 3*time.Second), failOpen, observability.ObserveScreening)
-		payments.WithScreeningGate(screeningClient)
-		slog.Info("screening enabled", "fail_open", failOpen)
+		riskControlGate = screeningClient
+		payments.WithRiskControlGate(screeningClient)
+		slog.Info("risk controls enabled", "fail_open", failOpen)
 	} else {
-		slog.Info("screening disabled")
+		slog.Info("risk controls disabled")
 	}
 	var dataPolicyObserver core.DataPolicyObserver
 	if baseURL, token := os.Getenv("CONTROL_PLANE_URL"), os.Getenv("CONTROL_PLANE_RUNTIME_TOKEN"); baseURL != "" && token != "" {
@@ -101,6 +103,9 @@ func main() {
 			payoutLedger = ledgerClient
 		}
 		payouts = app.NewPayouts(nativePayouts, httpclient.NewRouter(env("ROUTER_URL", "http://localhost:8091"), os.Getenv("SERVICE_TOKEN")), connectors, payoutLedger, auth)
+		if riskControlGate != nil {
+			payouts.WithRiskControlGate(riskControlGate)
+		}
 		if dataPolicyObserver != nil {
 			payouts.WithDataPolicyObserver(dataPolicyObserver)
 		}

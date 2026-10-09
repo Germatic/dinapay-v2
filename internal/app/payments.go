@@ -64,6 +64,7 @@ type Payments struct {
 	now          func() time.Time
 	dataPolicies core.DataPolicyObserver
 	screening    core.ScreeningGate
+	riskControls core.RiskControlGate
 }
 
 func NewPayments(router core.Router, connector core.Connector, store core.PaymentStore, merchants core.Authenticator, checkoutBase string) *Payments {
@@ -77,6 +78,11 @@ func (s *Payments) WithDataPolicyObserver(observer core.DataPolicyObserver) *Pay
 
 func (s *Payments) WithScreeningGate(gate core.ScreeningGate) *Payments {
 	s.screening = gate
+	return s
+}
+
+func (s *Payments) WithRiskControlGate(gate core.RiskControlGate) *Payments {
+	s.riskControls = gate
 	return s
 }
 
@@ -129,7 +135,11 @@ func (s *Payments) Create(ctx context.Context, principal core.Principal, in core
 			return core.Payment{}, false, err
 		}
 	}
-	if s.screening != nil {
+	if s.riskControls != nil {
+		if err := evaluateCreationRisk(ctx, s.riskControls, core.RiskControlObservation{AccountID: principal.AccountID, MerchantID: merchantID, ResourceType: "payment", ResourceID: txID, Country: country, Currency: in.Currency, PaymentMethod: in.PaymentMethod, Rail: route.Rail, ProviderCode: route.Provider}, riskSubject{role: "customer", subject: map[string]any(in.Customer)}); err != nil {
+			return core.Payment{}, false, err
+		}
+	} else if s.screening != nil {
 		if err := s.screening.Evaluate(ctx, core.ScreeningObservation{
 			OperationID: "screen:payment:" + txID + ":customer", AccountID: principal.AccountID,
 			MerchantID: merchantID, ResourceType: "payment", ResourceID: txID,

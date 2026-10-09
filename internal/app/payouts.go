@@ -19,10 +19,16 @@ type Payouts struct {
 	auth         core.Authenticator
 	aliases      core.ARSAliasResolver
 	dataPolicies core.DataPolicyObserver
+	riskControls core.RiskControlGate
 }
 
 func (s *Payouts) WithDataPolicyObserver(observer core.DataPolicyObserver) *Payouts {
 	s.dataPolicies = observer
+	return s
+}
+
+func (s *Payouts) WithRiskControlGate(gate core.RiskControlGate) *Payouts {
+	s.riskControls = gate
 	return s
 }
 
@@ -74,6 +80,9 @@ func (s *Payouts) Create(ctx context.Context, principal core.Principal, key stri
 		if err := s.dataPolicies.Evaluate(ctx, core.DataPolicyObservation{Resource: "payout", AccountID: principal.AccountID, MerchantID: merchantID, Provider: route.Provider, Country: in.Destination.Country, Currency: in.Source.Currency, Rail: stringValue(in.Destination.Rail, "type"), Data: map[string]any{"remitter": in.Remitter, "destination": map[string]any{"beneficiary": in.Destination.Beneficiary, "rail": in.Destination.Rail}}}); err != nil {
 			return core.Payout{}, false, err
 		}
+	}
+	if err := evaluateCreationRisk(ctx, s.riskControls, core.RiskControlObservation{AccountID: principal.AccountID, MerchantID: merchantID, ResourceType: "payout", ResourceID: id, Country: in.Destination.Country, Currency: in.Source.Currency, Rail: stringValue(in.Destination.Rail, "type"), ProviderCode: route.Provider}, riskSubject{role: "remitter", subject: in.Remitter}, riskSubject{role: "recipient", subject: in.Destination.Beneficiary}); err != nil {
+		return core.Payout{}, false, err
 	}
 	p, err := s.store.CompletePayout(ctx, principal, key, id, in, route)
 	if err != nil {

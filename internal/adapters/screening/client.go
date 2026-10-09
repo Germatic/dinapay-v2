@@ -15,17 +15,85 @@ import (
 )
 
 type Client struct {
-	url, key, environment string
-	http                  *http.Client
-	failOpen              bool
-	observe               func(resource, mode, decision, action, outcome string)
+	url, riskURL, key, environment string
+	http                           *http.Client
+	failOpen                       bool
+	observe                        func(resource, mode, decision, action, outcome string)
 }
 
 func New(baseURL, key, environment string, timeout time.Duration, failOpen bool, observe func(string, string, string, string, string)) *Client {
 	if timeout <= 0 {
 		timeout = 3 * time.Second
 	}
-	return &Client{url: strings.TrimRight(baseURL, "/") + "/internal/v1/evaluations", key: key, environment: environment, http: &http.Client{Timeout: timeout}, failOpen: failOpen, observe: observe}
+	baseURL = strings.TrimRight(baseURL, "/")
+	return &Client{url: baseURL + "/internal/v1/evaluations", riskURL: baseURL + "/internal/v1/risk-evaluations", key: key, environment: environment, http: &http.Client{Timeout: timeout}, failOpen: failOpen, observe: observe}
+}
+
+type riskResponse struct {
+	Result, Action string
+	Policy         struct {
+		Mode, Provider string
+	} `json:"policy"`
+}
+
+func (c *Client) EvaluateRisk(ctx context.Context, in core.RiskControlObservation) error {
+	subject := normalizeRiskSubject(in.Subject)
+	body := map[string]any{
+		"operationId": in.OperationID, "contractVersion": "1", "controlType": in.ControlType, "subject": subject,
+		"context": map[string]any{"accountId": in.AccountID, "merchantId": in.MerchantID, "resourceType": in.ResourceType, "resourceId": in.ResourceID, "stage": in.Stage, "subjectRole": in.SubjectRole, "country": in.Country, "currency": in.Currency, "paymentMethod": in.PaymentMethod, "railType": in.Rail, "providerCode": in.ProviderCode, "environment": c.environment},
+	}
+	payload, err := json.Marshal(body)
+	if err != nil {
+		return c.riskFailure(in, "encode_error", err)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.riskURL, bytes.NewReader(payload))
+	if err != nil {
+		return c.riskFailure(in, "request_error", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if c.key != "" {
+		req.Header.Set("X-Internal-Key", c.key)
+	}
+	res, err := c.http.Do(req)
+	if err != nil {
+		return c.riskFailure(in, "unavailable", err)
+	}
+	defer res.Body.Close()
+	raw, _ := io.ReadAll(io.LimitReader(res.Body, 1<<20))
+	if res.StatusCode != http.StatusOK {
+		var envelope errorEnvelope
+		_ = json.Unmarshal(raw, &envelope)
+		code := envelope.Error.Code
+		if code == "" {
+			code = "http_error"
+		}
+		return c.riskFailure(in, code, fmt.Errorf("risk control status %d", res.StatusCode))
+	}
+	var out riskResponse
+	if err = json.Unmarshal(raw, &out); err != nil {
+		return c.riskFailure(in, "invalid_response", err)
+	}
+	c.record(in.ResourceType+":"+in.ControlType+":"+in.SubjectRole, out.Policy.Mode, out.Result, out.Action, "evaluated")
+	slog.Info("risk control evaluated", "control_type", in.ControlType, "stage", in.Stage, "subject_role", in.SubjectRole, "resource", in.ResourceType, "resource_id", in.ResourceID, "merchant_id", in.MerchantID, "mode", out.Policy.Mode, "result", out.Result, "action", out.Action, "provider", out.Policy.Provider)
+	switch out.Action {
+	case "reject":
+		return core.ErrScreeningBlocked
+	case "manual_review", "hold", "freeze":
+		return core.ErrScreeningReview
+	case "retry":
+		return fmt.Errorf("risk control requested retry")
+	default:
+		return nil
+	}
+}
+
+func (c *Client) riskFailure(in core.RiskControlObservation, code string, err error) error {
+	c.record(in.ResourceType+":"+in.ControlType+":"+in.SubjectRole, "unknown", "unavailable", "continue", code)
+	slog.Warn("risk control call failed", "control_type", in.ControlType, "stage", in.Stage, "subject_role", in.SubjectRole, "resource", in.ResourceType, "resource_id", in.ResourceID, "merchant_id", in.MerchantID, "code", code, "fail_open", c.failOpen, "error", err)
+	if c.failOpen {
+		return nil
+	}
+	return err
 }
 
 type response struct {
@@ -137,4 +205,14 @@ func normalizeSubject(value map[string]any) map[string]any {
 		}
 	}
 	return result
+}
+
+func normalizeRiskSubject(value map[string]any) map[string]any {
+	legacy := normalizeSubject(value)
+	delete(legacy, "role")
+	if subjectType, ok := legacy["subjectType"]; ok {
+		legacy["type"] = subjectType
+		delete(legacy, "subjectType")
+	}
+	return legacy
 }

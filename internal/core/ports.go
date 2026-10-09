@@ -192,3 +192,18 @@ type ScreeningObservation struct {
 	Country, PaymentMethod, Rail, Environment                    string
 	Subject                                                      map[string]any
 }
+
+// RiskControlGate evaluates a canonical subject independently of the concrete
+// screening or age provider. Creation-time callers invoke one evaluation per
+// configured control and may do so concurrently.
+type RiskControlGate interface {
+	EvaluateRisk(context.Context, RiskControlObservation) error
+}
+
+type RiskControlObservation struct {
+	OperationID, ControlType, Stage, SubjectRole        string
+	AccountID, MerchantID, ResourceType, ResourceID     string
+	Country, Currency, PaymentMethod, Rail, Environment string
+	ProviderCode                                        string
+	Subject                                             map[string]any
+}
